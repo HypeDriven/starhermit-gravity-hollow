@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0c1a12">
+<title>Gravity Hollow</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <!-- 3D playfield: never the only UI; all controls have DOM equivalents -->
+  <canvas id="game-canvas" aria-hidden="true"></canvas>
+  <div id="labels" aria-hidden="true"></div>
+
+  <!-- compatibility message when WebGL is unavailable -->
+  <div id="compat" class="screen hidden" role="alert">
+    <div class="panel">
+      <h1>Gravity Hollow</h1>
+      <p>This device or browser cannot create a WebGL context, so the 3D plaza cannot start.
+      Your profile and progress are preserved. Try a current version of Chrome, Edge, Firefox, or Safari.</p>
+    </div>
+  </div>
+
+  <!-- boot -->
+  <section id="screen-boot" class="screen" aria-label="Loading">
+    <div class="panel center">
+      <h1 class="logo">Gravity Hollow</h1>
+      <p id="boot-status" role="status">Warming the plaza…</p>
+      <progress id="boot-progress" max="100" value="10">10%</progress>
+    </div>
+  </section>
+
+  <!-- title / home: Play dominant; daily, journey, profile one level below -->
+  <section id="screen-title" class="screen hidden" aria-labelledby="title-h">
+    <div class="panel center title-panel">
+      <h1 id="title-h" class="logo">Gravity Hollow</h1>
+      <p class="tagline">Grow the hollow. Outscore the plaza.</p>
+      <button id="btn-play" class="primary big">Play</button>
+      <div class="title-row">
+        <button id="btn-daily" class="secondary">Daily Hollow<br><small id="daily-sub">today's seed</small></button>
+        <button id="btn-journey" class="secondary">Journey<br><small id="journey-sub">0 / 40</small></button>
+        <button id="btn-profile" class="secondary">Profile<br><small id="profile-sub">guest</small></button>
+      </div>
+      <div class="title-row">
+        <button id="btn-help" class="ghost">How to play</button>
+        <button id="btn-settings" class="ghost">Settings</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- mode select -->
+  <section id="screen-modes" class="screen hidden" aria-labelledby="modes-h">
+    <div class="panel">
+      <h2 id="modes-h">Choose a mode</h2>
+      <div class="card-grid" id="mode-cards"><!-- generated --></div>
+      <button class="ghost back" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- mode setup: rules, duration, player count, assists, ranked flag -->
+  <section id="screen-setup" class="screen hidden" aria-labelledby="setup-h">
+    <div class="panel">
+      <h2 id="setup-h">Set up</h2>
+      <div id="setup-body"><!-- generated --></div>
+      <div class="row">
+        <button id="btn-start-match" class="primary">Start</button>
+        <button class="ghost back" data-back>Back</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- journey map -->
+  <section id="screen-journey" class="screen hidden" aria-labelledby="journey-h">
+    <div class="panel wide">
+      <h2 id="journey-h">Journey</h2>
+      <p class="dim">One new idea at a time. Mastery stages test combined skills.</p>
+      <div id="journey-grid" class="journey-grid"><!-- generated --></div>
+      <button class="ghost back" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- profile & achievements -->
+  <section id="screen-profile" class="screen hidden" aria-labelledby="profile-h">
+    <div class="panel">
+      <h2 id="profile-h">Profile</h2>
+      <div id="profile-body"></div>
+      <h3>Achievements</h3>
+      <ul id="achievement-list" class="achievements"></ul>
+      <button class="ghost back" data-back>Back</button>
+    </div>
+  </section>
+
+  <!-- play HUD: objective, progress, actor state, pause, context actions -->
+  <header id="hud" class="hidden" aria-label="Match status">
+    <div id="hud-left" class="hud-rail">
+      <div id="hud-objective" class="hud-card" role="status" aria-live="polite"></div>
+      <div id="hud-goals" class="hud-card"></div>
+    </div>
+    <div id="hud-center">
+      <div id="hud-timer" class="hud-card big" role="timer" aria-live="off">0:00</div>
+      <div id="hud-ranks" class="hud-card"></div>
+    </div>
+    <div id="hud-right" class="hud-rail">
+      <div id="hud-score" class="hud-card"></div>
+      <button id="btn-pause" class="hud-btn" aria-label="Pause">⏸</button>
+    </div>
+  </header>
+
+  <!-- tutorial banner -->
+  <div id="tutorial-banner" class="hidden" role="status" aria-live="polite">
+    <p id="tutorial-text"></p>
+    <p id="tutorial-hint" class="dim"></p>
+    <button id="btn-tutorial-skip" class="ghost small">Skip lesson</button>
+  </div>
+
+  <!-- bottom thumb-zone action tray -->
+  <nav id="action-tray" class="hidden" aria-label="Actions">
+    <button id="btn-undo" class="tray-btn hidden" aria-label="Undo">↩<small>undo</small></button>
+    <button id="btn-hint" class="tray-btn" aria-label="Hint">?<small>hint</small></button>
+    <button id="btn-boost" class="tray-btn boost" aria-label="Boost (hold)">⚡<small>boost</small></button>
+    <button id="btn-camera" class="tray-btn" aria-label="Reset camera">◎<small>camera</small></button>
+  </nav>
+
+  <!-- countdown -->
+  <div id="countdown" class="hidden" aria-live="assertive"></div>
+
+  <!-- pause / settings overlay: resume first -->
+  <section id="screen-pause" class="screen overlay hidden" aria-labelledby="pause-h" role="dialog" aria-modal="true">
+    <div class="panel">
+      <h2 id="pause-h">Paused</h2>
+      <p id="pause-away" class="dim"></p>
+      <button id="btn-resume" class="primary big">Resume</button>
+      <div class="stack">
+        <button id="btn-pause-settings" class="secondary">Settings</button>
+        <button id="btn-pause-help" class="secondary">Help</button>
+        <button id="btn-restart" class="secondary">Restart</button>
+        <button id="btn-leave" class="danger">Leave match</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- results -->
+  <section id="screen-results" class="screen overlay hidden" aria-labelledby="results-h" role="dialog" aria-modal="true">
+    <div class="panel wide">
+      <h2 id="results-h">Results</h2>
+      <p id="results-headline" class="headline"></p>
+      <div class="results-cols">
+        <div>
+          <h3>Standings</h3>
+          <ol id="results-standings"></ol>
+        </div>
+        <div>
+          <h3>Your score breakdown</h3>
+          <dl id="results-breakdown" class="breakdown"></dl>
+          <h3>Objectives</h3>
+          <ul id="results-goals"></ul>
+          <p id="results-progress" class="dim"></p>
+          <p id="results-replay" class="dim"></p>
+        </div>
+      </div>
+      <div class="row">
+        <button id="btn-next" class="primary">Next</button>
+        <button id="btn-retry" class="secondary">Retry</button>
+        <button id="btn-results-home" class="ghost">Home</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- settings -->
+  <section id="screen-settings" class="screen overlay hidden" aria-labelledby="settings-h" role="dialog" aria-modal="true">
+    <div class="panel wide settings-panel">
+      <h2 id="settings-h">Settings</h2>
+      <div class="settings-cols">
+        <fieldset>
+          <legend>Audio</legend>
+          <label>Music <input type="range" id="set-music" min="0" max="1" step="0.05"></label>
+          <label>Effects <input type="range" id="set-effects" min="0" max="1" step="0.05"></label>
+          <label>Ambience <input type="range" id="set-ambience" min="0" max="1" step="0.05"></label>
+          <label>Voice cues <input type="range" id="set-voice" min="0" max="1" step="0.05"></label>
+          <label><input type="checkbox" id="set-muted"> Mute all</label>
+          <label><input type="checkbox" id="set-captions"> Captions for audio cues</label>
+        </fieldset>
+        <fieldset>
+          <legend>Graphics</legend>
+          <label>Quality
+            <select id="set-quality">
+              <option value="auto">Auto</option><option value="low">Low</option>
+              <option value="medium">Medium</option><option value="high">High</option>
+            </select>
+          </label>
+          <label><input type="checkbox" id="set-reduced"> Reduced motion</label>
+          <label><input type="checkbox" id="set-contrast"> High contrast</label>
+          <label>Color palette
+            <select id="set-palette">
+              <option value="default">Default</option><option value="deuteranopia">Deuteranopia-safe</option>
+              <option value="protanopia">Protanopia-safe</option><option value="tritanopia">Tritanopia-safe</option>
+            </select>
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Controls &amp; access</legend>
+          <label><input type="checkbox" id="set-large-text"> Larger text</label>
+          <label><input type="checkbox" id="set-left"> Left-handed tray</label>
+          <label><input type="checkbox" id="set-hold"> Hold-to-boost (off = toggle)</label>
+          <label><input type="checkbox" id="set-timing"> Timing assistance</label>
+          <label><input type="checkbox" id="set-haptics"> Haptics</label>
+          <button id="btn-rebind" class="ghost small">Keyboard bindings</button>
+          <div id="bind-editor" class="hidden"></div>
+        </fieldset>
+      </div>
+      <div class="row">
+        <button id="btn-settings-close" class="primary">Done</button>
+        <button id="btn-replay-tutorial" class="ghost">Replay tutorial</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- help: rule cards generated from current control mappings -->
+  <section id="screen-help" class="screen overlay hidden" aria-labelledby="help-h" role="dialog" aria-modal="true">
+    <div class="panel wide">
+      <h2 id="help-h">How to play</h2>
+      <div id="help-cards" class="card-grid"><!-- generated from bindings + legal states --></div>
+      <button id="btn-help-close" class="primary">Close</button>
+    </div>
+  </section>
+
+  <div id="toasts" aria-live="polite"></div>
+  <div id="captions" class="hidden" aria-hidden="true"></div>
+  <div id="sr-live" class="sr-only" aria-live="polite"></div>
+  <div id="sr-assertive" class="sr-only" aria-live="assertive"></div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

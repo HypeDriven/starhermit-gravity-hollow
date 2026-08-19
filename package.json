@@ -1,0 +1,16 @@
+{
+  "name": "gravity-hollow",
+  "version": "1.0.0",
+  "description": "Gravity Hollow — a realtime collection arena. Grow a void, consume the plaza, outscore your rivals.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node tests/rules.test.mjs && node tests/session.test.mjs"
+  },
+  "keywords": ["game", "threejs", "arena"],
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "three": "^0.160.1"
+  }
+}
