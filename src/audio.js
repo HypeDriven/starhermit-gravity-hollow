@@ -2,8 +2,21 @@
 // events, layered material impacts, quiet ambience, and adaptive music stems.
 // Buses: music / effects / ambience / voice, each with its own slider.
 // Pitch variants are seeded so replays sound consistent.
+// Authored one-shots (sfx/<name>.opus, see sfx/manifest.json) are preferred
+// per event once decoded; synthesis below remains the fallback while a clip
+// is loading or unavailable.
 
 import { mulberry32 } from './rng.js';
+
+// event name -> authored sample basename (sfx/<basename>.opus)
+const SFX_SAMPLES = {
+  ui_move: 'ui-move', ui_confirm: 'ui-confirm', ui_back: 'ui-back',
+  invalid: 'invalid-buzz', eat: 'eat-morsel', eat_gem: 'eat-gem',
+  eat_void: 'eat-void', burn: 'ember-burn', boost: 'boost-whoosh',
+  respawn: 'respawn-bloom', goal: 'goal-chime', countdown: 'countdown-tick',
+  go: 'go-signal', round_end: 'round-end-fanfare', defeat: 'defeat-fall',
+  undo: 'undo-rewind', hint: 'hint-spark', achievement: 'achievement-unlock',
+};
 
 export class AudioEngine {
   constructor(settings) {
@@ -15,6 +28,7 @@ export class AudioEngine {
     this.ambNodes = [];
     this.rng = mulberry32(0xC0FFEE);
     this.caption = null;   // fn(text) for captions/text cues
+    this.samples = new Map(); // basename -> { state: 'loading'|'ready'|'failed', buffer }
   }
 
   ensure() {
@@ -79,11 +93,37 @@ export class AudioEngine {
     src.start(t);
   }
 
+  // ---- authored samples: lazy fetch/decode/cache after gesture unlock -----
+
+  // Returns true when the clip played; false means fall back to synthesis.
+  playSample(basename) {
+    if (!this.ensure()) return false;
+    const entry = this.samples.get(basename);
+    if (entry?.state === 'ready') {
+      const src = this.ctx.createBufferSource();
+      src.buffer = entry.buffer;
+      src.connect(this.buses.effects);
+      src.start();
+      return true;
+    }
+    if (!entry) {
+      this.samples.set(basename, { state: 'loading' });
+      fetch(`sfx/${basename}.opus`)
+        .then(r => { if (!r.ok) throw new Error(`sfx ${r.status}`); return r.arrayBuffer(); })
+        .then(ab => this.ctx.decodeAudioData(ab))
+        .then(buffer => this.samples.set(basename, { state: 'ready', buffer }))
+        .catch(() => this.samples.set(basename, { state: 'failed' }));
+    }
+    return false;
+  }
+
   // ---- event mapping (event hierarchy: ack < move < combo/goal < round) ---
 
   event(name, opts = {}) {
     if (this.settings.muted) { this.say(captionFor(name, opts)); return; }
     this.resume();
+    const sample = SFX_SAMPLES[name];
+    if (sample && this.playSample(sample)) { this.say(captionFor(name, opts)); return; }
     const v = 1 + (this.rng() - 0.5) * 0.12; // seeded pitch variant
     switch (name) {
       case 'ui_move': this.blip({ f0: 620 * v, f1: 700 * v, dur: 0.05, gain: 0.08 }); break;

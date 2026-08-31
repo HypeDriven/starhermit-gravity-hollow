@@ -1,0 +1,20 @@
+[
+  { "name": "ui-move", "seconds": 1, "prompt": "A very short soft wooden tick, like a fingertip tapping a hollow gourd, dry and quiet, no reverb tail", "event": "ui_move" },
+  { "name": "ui-confirm", "seconds": 1, "prompt": "A short warm marimba pluck with a gentle rising pitch, rounded mallet attack, positive and clean", "event": "ui_confirm" },
+  { "name": "ui-back", "seconds": 1, "prompt": "A short muted woodblock knock falling slightly in pitch, soft and unhurried, single dry hit", "event": "ui_back" },
+  { "name": "invalid-buzz", "seconds": 1, "prompt": "A short low dull buzzer thunk, like a rubber mallet striking a padded metal door once, flat and discouraging", "event": "invalid" },
+  { "name": "eat-morsel", "seconds": 1, "prompt": "A small crisp crunch, like biting into a dry seed pod, with a faint bubbly gulp at the end", "event": "eat" },
+  { "name": "eat-gem", "seconds": 1, "prompt": "A bright crystalline chime, like a small glass bell tapped once, sparkling with a short shimmering decay", "event": "eat_gem" },
+  { "name": "eat-void", "seconds": 2, "prompt": "A deep airy whoosh collapsing inward, like a heavy cloth sack being sucked shut, followed by a low resonant thud", "event": "eat_void" },
+  { "name": "ember-burn", "seconds": 1, "prompt": "A quick fiery sizzle and crackle, like a dry twig snapping in a campfire, sharp hot burst with a short fade", "event": "burn" },
+  { "name": "boost-whoosh", "seconds": 1, "prompt": "A fast breathy whoosh of air rushing past, like a sudden gust through a narrow canyon, rising then gone", "event": "boost" },
+  { "name": "respawn-bloom", "seconds": 2, "prompt": "A soft swelling shimmer, like a bubble slowly inflating and settling, gentle airy rise with a calm rounded finish", "event": "respawn" },
+  { "name": "goal-chime", "seconds": 2, "prompt": "Three ascending tuned hand-bell strikes, warm brass bells, celebratory but gentle, with natural ringing decay", "event": "goal" },
+  { "name": "countdown-tick", "seconds": 1, "prompt": "A single dry clave click, short precise wooden percussion hit, even and neutral like a metronome accent", "event": "countdown" },
+  { "name": "go-signal", "seconds": 1, "prompt": "A bright rising whistle-chirp, like a referee's short pealess whistle blast, energetic and clear", "event": "go" },
+  { "name": "round-end-fanfare", "seconds": 3, "prompt": "A short warm fanfare of four rising hand-drum and bell notes, folksy and satisfying, ending on a sustained ringing tone", "event": "round_end" },
+  { "name": "defeat-fall", "seconds": 2, "prompt": "A descending muffled slide, like a heavy beanbag dropping onto carpet in stages, soft low thumps sinking downward", "event": "defeat" },
+  { "name": "undo-rewind", "seconds": 1, "prompt": "A brief reversed tape warble, like a small ribbon being pulled back through a slot, quick descending flutter", "event": "undo" },
+  { "name": "hint-spark", "seconds": 1, "prompt": "A tiny bright metallic ping, like a needle tapping a small silver bell once, delicate and curious", "event": "hint" },
+  { "name": "achievement-unlock", "seconds": 2, "prompt": "A short joyful cascade of small brass bells and a light wooden clap, like a tiny trophy being set on a shelf with a celebratory ring", "event": "achievement" }
+]
