@@ -136,7 +136,10 @@ class App {
       if (!res.ok) throw new Error('no time');
       const t1 = Date.now();
       const body = await res.json();
-      const serverMs = body.epochMs + (t1 - t0) / 2;
+      // Hosts expose the epoch under different keys (`epochMs`, `serverTime`, `now`).
+      const epoch = Number(body.epochMs ?? body.serverTime ?? body.now);
+      if (!Number.isFinite(epoch)) throw new Error('no time');
+      const serverMs = epoch + (t1 - t0) / 2;
       this.serverOffset = serverMs - t1;
     } catch { this.serverOffset = 0; }
   }
