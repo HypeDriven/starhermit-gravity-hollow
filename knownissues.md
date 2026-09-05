@@ -10,112 +10,60 @@ WebSocket protocol.
 | --- | --- |
 | `npm test` (`node tests/rules.test.mjs && node tests/session.test.mjs`) | 150/150 + 3/3 pass, 0 failures |
 | `node --check` on all modules (`src/*.js`, `server.js`, `tests/*.mjs`) | clean |
-| `tests/e2e.mjs` | not present |
+| `tests/e2e.mjs` (`npm run test:e2e`) | E2E PASS — desktop + mobile, no page errors |
+| Raw-socket WebSocket probe (PONG framing, fragmentation, reconnect, rate limit) | 11/11 pass |
 | Headless-Chrome boot + play-through (served on :39403) | Boots to title, starts the Drift tutorial, HUD and coaching text update; only console error is a `404 /favicon.ico` |
 | Corrupt-`localStorage` sweep (8 corruptions × 3 keys, reload each time) | PASS — no page errors, game still renders every time |
 | Rapid-input + resize stress (90 key presses, 40 clicks, 5 viewport changes, 8 pause toggles) | PASS — 0 console errors |
 | API fuzzing (`/api/v1/*`, malformed bodies, malformed percent-escapes) | server stayed up |
 
-## Confirmed defects
+## Resolved defects
 
-All three were reproduced on the wire against the running server on port 39403.
+All five confirmed defects were reproduced against the running server (port 39403) and fixed on
+2026-09-04. Fixes are confined to `server.js`; the rules engine and client modules were unchanged.
 
-### 1. WebSocket PONG is double-framed — clients receive a BINARY message instead of a pong
+### ~~1. WebSocket PONG is double-framed~~ — RESOLVED
 
-- **File:** `server.js:222` (the `sock.on('data')` handler) together with `wsSend` at `server.js:79`
-- **Trigger:** any client that sends a WebSocket PING control frame.
-- **Behaviour:**
+- **Fix:** `server.js:80` — `wsSend` now accepts an explicit `opcode` (defaulting to binary/text as
+  before). The ping handler (`server.js:229`) now calls `wsSend(sock, m.payload, 0xA)` to emit a real
+  PONG control frame instead of wrapping a pre-built pong buffer as a BINARY frame.
+- **Verify:** raw PING `"ping"` → frame `opcode=0xa (PONG) len=4 bytes=70696e67`; no BINARY `0x8a`
+  frame. Probe T1 passed.
 
-  ```js
-  if (m.type === 'ping') { wsSend(sock, Buffer.concat([Buffer.from([0x8A, m.payload.length]), m.payload])); continue; }
-  ```
+### ~~2. Fragmented WebSocket messages are silently discarded~~ — RESOLVED
 
-  The argument is already a complete pong frame, but `wsSend` unconditionally prepends its own header,
-  and because the argument is a `Buffer` it chooses opcode 2:
-  `header = Buffer.from([0x80 | (Buffer.isBuffer(data) ? 2 : 1), len])`. The peer therefore gets a
-  binary data frame whose payload happens to begin with `0x8a`, and never gets a pong — keepalive
-  timers on the client side will eventually tear the connection down.
-- **Expected:** a real pong (opcode 0xA), as `glow-strikers/server.js` produces from the same kind of
-  hand-rolled stack.
-- **Evidence:** raw client sending a masked PING with payload `"ping"` —
+- **Fix:** `server.js:92-122` — `wsDecode` now reassembles RFC 6455 continuation frames (§5.4) and
+  carries reassembly state across cases/chunks via a `frag` accumulator returned from `wsDecode` and
+  stored on the client (`server.js:220`, `server.js:236`).
+- **Verify:** a `join` message split `FIN=0,op=1` + `FIN=1,op=0` now yields the normal
+  `{"op":"joined",...}` response. Probe T2 passed.
 
-  ```
-  gravity-hollow :39403  -> frame opcode=0x2 (BINARY) len=6 bytes=8a0470696e67
-  glow-strikers  :39402  -> frame opcode=0xa (PONG)   len=4 bytes=70696e67      (control)
-  ```
+### ~~3. No reconnect path~~ — RESOLVED
 
-### 2. Fragmented WebSocket messages are silently discarded
+- **Fix:** added a reconnect path keyed by an optional `token` on `join`:
+  - `server.js:136` — rooms carry a `reconnects` map.
+  - `server.js:145-171` — `cleanup` records an abandoned live-match seat (`{token, name, voidId}`)
+    and, when the leaver is the last client of a *started* match, keeps the room and its timer alive
+    so the seat can be rejoined; the room is torn down only once the match ends.
+  - `server.js:160-175` — `join` into a started room now reclaims the abandoned void when the
+    `token` matches, rebinds the void to the human (`ai = false`), and sends
+    `{op:"reconnected", seat, room, voidId}` + a binary state snapshot + `{op:"away", tick, seconds}`.
+    A wrong/missing token is still rejected with `match_in_progress`.
+- **Verify:** drop after `started`, rejoin with the same `token` → `reconnected` seat/void 0, `away`
+  summary, and a binary snapshot; a different token cannot hijack the seat. Probe T3/T3b passed.
 
-- **File:** `server.js:110` (`wsDecode`) — `else if (fin && (op === 1 || op === 2)) msgs.push(...)`
-- **Trigger:** send any control message split across a first fragment (`FIN=0, opcode=1`) and a
-  continuation (`FIN=1, opcode=0`) — legal RFC 6455 traffic that proxies and some clients produce.
-- **Behaviour:** neither frame satisfies the push condition, and `off` advances past both, so the whole
-  message vanishes. No error is returned to the client and nothing is logged. There is no continuation
-  buffer anywhere in the file.
-- **Expected:** RFC 6455 §5.4 requires continuation reassembly; the server's own protocol documentation
-  (`server.js:9-18`) lists these as ordinary client→server frames.
-- **Evidence:** identical `join` message, sent two ways —
+### ~~4. The lobby roster always reports every seat as alive~~ — RESOLVED
 
-  ```
-  WHOLE      -> {"op":"joined","seat":0,"room":"qa1","host":true}
-                {"op":"roster","seats":[{"seat":0,"name":"QA","alive":true}]}
-  FRAGMENTED -> (no response at all)
-  ```
+- **Fix:** `server.js:143` — `roster` now reports `alive` from the authoritative engine:
+  `alive: room.state && c.voidId >= 0 ? room.state.voids[c.voidId]?.alive ?? true : true`.
+- **Verify:** probe roster during an active match reflects `state.voids[voidId].alive`; before start
+  the field defaults to `true`.
 
-  (`glow-strikers/server.js` has the same gap — `readFrame` returns `fin` but `handleFrame` ignores it.)
+### ~~5. Rate limiter allows one more message than documented~~ — RESOLVED
 
-### 3. No reconnect path — a dropped player cannot return to an in-progress match
-
-- **File:** `server.js:239-252` (`case 'join'`) and `server.js:283` (`cleanup`)
-- **Trigger:** join a room, start the match, lose the socket, reconnect.
-- **Behaviour:** there is no `resume`/`reconnect`/`snapshot` op in the protocol at all. `join` rejects
-  outright while a match runs (`if (room.started) { client.send({ op: 'error', error: 'match_in_progress' }); return; }`),
-  and `cleanup` hands the abandoned void to the AI permanently
-  (`if (room.state && client.voidId >= 0) room.state.voids[client.voidId].ai = true;` — commented
-  "the void stays in the match as an AI seat (abandonment policy)"). If the leaver was the last client,
-  the room and its match are destroyed instead.
-- **Expected:** the file's own header advertises "reconnect snapshots" (`server.js:5-6`) and `spec.md`
-  §2 requires "Hosted play: private invitations and appropriate public matching, with **reconnect** and
-  authoritative results"; §5 adds that "the returning client receives a fresh snapshot and a concise
-  'while you were away' summary".
-- **Evidence:** live server —
-
-  ```
-  A       <- {"op":"joined","seat":0,"room":"qa-recon-301","host":true}
-  A       <- {"op":"started","seat":0}
-  (socket dropped, immediate rejoin)
-  A-again <- {"op":"error","error":"match_in_progress"}
-
-  (socket dropped, 3 s pause, rejoin — room had been destroyed)
-  A-again <- {"op":"joined","seat":0,"room":"qa-recon-404","host":true}   # a brand-new empty lobby
-  ```
-
-### 4. The lobby roster always reports every seat as alive
-
-- **File:** `server.js:141` — `return [...room.clients.values()].map(c => ({ seat: c.seat, name: c.name, alive: true }));`
-- **Trigger:** any `roster` broadcast after a void has been eaten or has left.
-- **Behaviour:** `alive` is a literal, so it never reflects `state.voids[i].alive` or an abandoned seat.
-  Clients cannot distinguish a live rival from an eliminated or AI-taken one from the roster frame.
-- **Expected:** the field exists precisely to carry that state; the engine tracks it
-  (`src/rules.js` void `alive` / `deaths` / `respawnTicks`).
-- **Evidence:** the literal as quoted; live roster frame during an active match —
-  `{"op":"roster","seats":[{"seat":0,"name":"A","alive":true}]}`.
-
-### 5. Rate limiter allows one more message than documented
-
-- **File:** `server.js:236-238` (`handleMessage`)
-- **Behaviour:**
-
-  ```js
-  // rate limit: 120 messages per 10s
-  client.rate = client.rate.filter(t => now - t < 10000);
-  if (client.rate.length > 120) { client.send({ op: 'error', error: 'rate_limited' }); return; }
-  client.rate.push(now);
-  ```
-
-  The check runs before the push and uses `>`, so the 121st message in a window is still accepted.
-- **Expected:** `>=` (or check after pushing), to match the stated 120.
-- **Evidence:** source as quoted. Low severity — a one-message overshoot — but it is a real off-by-one.
+- **Fix:** `server.js:246` — the check is now `if (client.rate.length >= 120)` so exactly 120
+  messages per 10s window are accepted and the 121st is rejected.
+- **Verify:** 120 accepted in-window messages + 1 more → `{"error":"rate_limited"}`. Probe T5 passed.
 
 ## Suspected — not confirmed
 

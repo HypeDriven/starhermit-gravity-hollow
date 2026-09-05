@@ -5,12 +5,20 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node tests/rules.test.mjs && node tests/session.test.mjs"
+    "test": "node tests/rules.test.mjs && node tests/session.test.mjs",
+    "test:e2e": "node tests/e2e.mjs"
   },
-  "keywords": ["game", "threejs", "arena"],
+  "keywords": [
+    "game",
+    "threejs",
+    "arena"
+  ],
   "license": "UNLICENSED",
   "private": true,
   "dependencies": {
     "three": "^0.160.1"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
   }
 }

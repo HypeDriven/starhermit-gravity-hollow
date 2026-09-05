@@ -77,21 +77,26 @@ const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 function wsAccept(key) {
   return createHash('sha1').update(key + WS_GUID).digest('base64');
 }
-function wsSend(sock, data) {
+function wsSend(sock, data, opcode) {
   const payload = Buffer.isBuffer(data) ? data : Buffer.from(data);
   const len = payload.length;
+  const op = opcode ?? (Buffer.isBuffer(data) ? 2 : 1);
   let header;
-  if (len < 126) { header = Buffer.from([0x80 | (Buffer.isBuffer(data) ? 2 : 1), len]); }
-  else if (len < 65536) { header = Buffer.alloc(4); header[0] = 0x80 | (Buffer.isBuffer(data) ? 2 : 1); header[1] = 126; header.writeUInt16BE(len, 2); }
-  else { header = Buffer.alloc(10); header[0] = 0x80 | (Buffer.isBuffer(data) ? 2 : 1); header[1] = 127; header.writeBigUInt64BE(BigInt(len), 2); }
+  if (len < 126) { header = Buffer.from([0x80 | op, len]); }
+  else if (len < 65536) { header = Buffer.alloc(4); header[0] = 0x80 | op; header[1] = 126; header.writeUInt16BE(len, 2); }
+  else { header = Buffer.alloc(10); header[0] = 0x80 | op; header[1] = 127; header.writeBigUInt64BE(BigInt(len), 2); }
   sock.write(Buffer.concat([header, payload]));
 }
 function wsClose(sock) { try { sock.write(Buffer.from([0x88, 0])); sock.end(); } catch {} }
 
-// returns [messages, rest] — handles masked client text/binary frames
-function wsDecode(buf) {
+// returns [messages, rest, frag] — handles masked client text/binary frames and RFC 6455
+// fragmentation (§5.4). `frag` carries reassembly state across calls (a message may be
+// split across TCP chunks); it is `{ data: Buffer, type: 0|1|2 }` where type is the
+// opcode of the opening frame (0 = none open).
+function wsDecode(buf, frag = { data: Buffer.alloc(0), type: 0 }) {
   const msgs = [];
   let off = 0;
+  let data = frag.data, type = frag.type;
   while (off + 2 <= buf.length) {
     const fin = (buf[off] & 0x80) !== 0;
     const op = buf[off] & 0x0f;
@@ -110,10 +115,17 @@ function wsDecode(buf) {
     }
     if (op === 8) msgs.push({ type: 'close' });
     else if (op === 9) msgs.push({ type: 'ping', payload });
-    else if (fin && (op === 1 || op === 2)) msgs.push({ type: op === 1 ? 'text' : 'binary', payload });
+    else if (op === 1 || op === 2) {
+      if (fin) msgs.push({ type: op === 1 ? 'text' : 'binary', payload });
+      else { data = payload; type = op; } // start of a fragmented message
+    } else if (op === 0) { // continuation
+      data = Buffer.concat([data, payload]);
+      type = type || 1;
+      if (fin) { msgs.push({ type: type === 2 ? 'binary' : 'text', payload: data }); data = Buffer.alloc(0); type = 0; }
+    }
     off = p + maskLen + len;
   }
-  return [msgs, buf.subarray(off)];
+  return [msgs, buf.subarray(off), { data, type }];
 }
 
 // ---------------------------------------------------------------- rooms
@@ -132,13 +144,17 @@ function getRoom(name) {
     rooms.set(name, {
       name, clients: new Map(), state: null, timer: null, started: false,
       nextSeat: 0, hostId: null,
+      reconnects: new Map(), // voidId -> { token, name } abandoned in a started match
     });
   }
   return rooms.get(name);
 }
 
 function roster(room) {
-  return [...room.clients.values()].map(c => ({ seat: c.seat, name: c.name, alive: true }));
+  return [...room.clients.values()].map(c => ({
+    seat: c.seat, name: c.name,
+    alive: room.state && c.voidId >= 0 ? room.state.voids[c.voidId]?.alive ?? true : true,
+  }));
 }
 
 function broadcast(room, fn) { for (const c of room.clients.values()) fn(c); }
@@ -162,6 +178,7 @@ function startMatch(room) {
   });
   // mark human voids as non-AI and bind seats
   seats.forEach((c, i) => { c.voidId = i; room.state.voids[i].ai = false; room.state.voids[i].name = c.name; });
+  room.reconnects.clear(); // no abandoned seats in a fresh match
   room.started = true;
   broadcast(room, c => c.send({ op: 'started', seat: c.voidId }));
   let lastBin = 0;
@@ -180,6 +197,8 @@ function startMatch(room) {
       const rankings = Rules.rankings(room.state).map(r => ({ id: r.id, name: r.name, place: r.place, mass: r.massCollected }));
       broadcast(room, c => c.send({ op: 'ended', reason: Rules.terminalReason(room.state), rankings, hash: Rules.hashState(room.state) }));
       room.started = false;
+      room.reconnects.clear();
+      if (room.clients.size === 0) rooms.delete(room.name); // match over, nobody to reconnect
     }
   }, TICK_MS);
 }
@@ -211,6 +230,7 @@ server.on('upgrade', (req, sock) => {
 
   const client = {
     sock, room: null, seat: -1, voidId: -1, name: 'guest', buf: Buffer.alloc(0),
+    frag: { data: Buffer.alloc(0), type: 0 }, // WebSocket continuation reassembly state
     rate: [], // sliding window for rate limiting
     send(msg) { wsSend(sock, JSON.stringify(msg)); },
     sendBinary(buf) { if (sock.writable) wsSend(sock, buf); },
@@ -219,11 +239,12 @@ server.on('upgrade', (req, sock) => {
   sock.on('data', (chunk) => {
     client.buf = Buffer.concat([client.buf, chunk]);
     if (client.buf.length > 65536) { wsClose(sock); return; } // payload size bound
-    const [msgs, rest] = wsDecode(client.buf);
+    const [msgs, rest, frag] = wsDecode(client.buf, client.frag);
     client.buf = rest;
+    client.frag = frag;
     for (const m of msgs) {
       if (m.type === 'close') { cleanup(client); wsClose(sock); return; }
-      if (m.type === 'ping') { wsSend(sock, Buffer.concat([Buffer.from([0x8A, m.payload.length]), m.payload])); continue; }
+      if (m.type === 'ping') { wsSend(sock, m.payload, 0xA); continue; } // real PONG control frame
       if (m.type !== 'text') continue;
       let msg;
       try { msg = JSON.parse(m.payload.toString()); } catch { client.send({ op: 'error', error: 'bad_json' }); continue; }
@@ -238,14 +259,36 @@ function handleMessage(client, msg) {
   // rate limit: 120 messages per 10s
   const now = Date.now();
   client.rate = client.rate.filter(t => now - t < 10000);
-  if (client.rate.length > 120) { client.send({ op: 'error', error: 'rate_limited' }); return; }
+  if (client.rate.length >= 120) { client.send({ op: 'error', error: 'rate_limited' }); return; }
   client.rate.push(now);
 
   switch (msg.op) {
     case 'join': {
       if (typeof msg.room !== 'string' || msg.room.length > 32) { client.send({ op: 'error', error: 'bad_room' }); return; }
       const room = getRoom(msg.room);
-      if (room.started) { client.send({ op: 'error', error: 'match_in_progress' }); return; }
+      client.token = typeof msg.token === 'string' ? msg.token.slice(0, 64) : '';
+      if (room.started) {
+        // Reconnect path: a prior client that was playing in this match may reclaim its
+        // abandoned void via the token it presented on the original join.
+        const slot = client.token ? [...room.reconnects.values()].find(r => r.token === client.token) : null;
+        if (!slot) { client.send({ op: 'error', error: 'match_in_progress' }); return; }
+        const voidId = slot.voidId;
+        room.reconnects.delete(voidId);
+        client.room = room;
+        client.name = slot.name;
+        client.voidId = voidId;
+        client.seat = voidId; // original human seats map 1:1 to void ids
+        if (room.hostId == null) room.hostId = client.seat;
+        room.clients.set(client.seat, client);
+        const v = room.state.voids[voidId];
+        if (v) v.ai = false; // the void is now driven by the human again
+        client.send({ op: 'reconnected', seat: client.seat, room: room.name, voidId });
+        // fresh authoritative snapshot + concise "while you were away" summary
+        client.sendBinary(encodeStateFrame(room.state));
+        client.send({ op: 'away', tick: room.state.tick, seconds: Math.round(room.state.tick / Rules.TICK_RATE) });
+        broadcast(room, c => c.send({ op: 'roster', seats: roster(room) }));
+        break;
+      }
       if (room.clients.size >= 8) { client.send({ op: 'error', error: 'room_full' }); return; }
       client.room = room;
       client.name = String(msg.name ?? 'guest').slice(0, 20);
@@ -285,7 +328,12 @@ function cleanup(client) {
   if (!room) return;
   room.clients.delete(client.seat);
   client.room = null;
+  // remember an abandoned live-match seat so its owner can rejoin via `token`
+  if (room.started && room.state && client.voidId >= 0 && client.token) {
+    room.reconnects.set(client.voidId, { token: client.token, name: client.name, voidId: client.voidId });
+  }
   if (room.clients.size === 0) {
+    if (room.started) return; // keep the running match alive for a reconnect
     if (room.timer) clearInterval(room.timer);
     rooms.delete(room.name);
   } else {
