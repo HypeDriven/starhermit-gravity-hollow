@@ -65,7 +65,88 @@ All five confirmed defects were reproduced against the running server (port 3940
   messages per 10s window are accepted and the 121st is rejected.
 - **Verify:** 120 accepted in-window messages + 1 more → `{"error":"rate_limited"}`. Probe T5 passed.
 
+## Review pass 2026-09-07 — defects found and fixed
+
+Reproduced against a running host (port 39411) and headless Chrome, then fixed. `npm test`
+(150 + 3), `npm run test:e2e` (desktop + mobile) and a 15-check raw-socket/HTTP probe all pass
+afterwards.
+
+### 1. Seat ids and void ids diverge after pre-match churn, so a reconnect evicts another player
+
+- **File:** `server.js` — `startMatch`, `handleMessage` case `'join'`.
+- **Repro:** A, B, C join a room; A leaves before the match starts, so the remaining clients hold
+  seats 1 and 2 while `startMatch` binds them to void ids 0 and 1. The reconnect path sets
+  `client.seat = voidId`, so C rejoining as void 1 takes key 1 in `room.clients` — B's key —
+  and B is silently dropped from the room. Probed: B received **0** further state frames after
+  C reconnected.
+- **Fix:** `startMatch` now re-keys `room.clients` by void id (`c.seat = i`) and resets `hostId`
+  to seat 0, making the 1:1 mapping the reconnect path already assumed actually hold.
+- **Verify:** same scenario now yields `{"op":"reconnected","seat":1,"voidId":1}` for C and
+  **+6** state frames for B in the following 400 ms.
+
+### 2. An abandoned void coasts on stale intent when the last human leaves
+
+- **File:** `server.js:347` — `cleanup`.
+- **Concern:** the `ai = true` handover lived in the `else` branch, so it was skipped exactly when
+  the departing client was the last one — the branch that deliberately keeps the match running for
+  a reconnect. The void kept its final movement intent for the rest of the match.
+- **Fix:** the handover now runs before the client-count branch and also zeroes `input`.
+
+### 3. Malformed percent-escape returned 500 (was: suspected)
+
+- **Fix:** `server.js:55` — `decodeURIComponent` has its own `try`/`catch` returning **400**.
+- **Verify:** `GET /%E0%A4%A` → `400` (was `500`).
+
+### 4. Unbounded frame length, unbounded reassembly, unmasked client frames (was: suspected)
+
+- **Fix:** `server.js:81` adds `MAX_FRAME = 65536`; `wsDecode` rejects unmasked client frames
+  (RFC 6455 §5.1) and any declared or reassembled length past that bound by returning a `fatal`
+  flag, which the data handler turns into a clean close. Continuation reassembly is now bounded —
+  previously `frag.data` could grow without limit because the per-chunk 64 KB check drains each time.
+- **Verify:** an unmasked frame and a frame declaring 10 MB each close the connection; normal PING,
+  fragmented `join` and ordinary play are unaffected.
+
+### 5. Dead traversal guard and a Windows-only cache-header miss (was: suspected)
+
+- **Fix:** the unreachable `path.includes('..')` check is replaced by a containment check on the
+  joined path; the `immutable` test now reads `url.pathname` rather than the OS path, so vendored
+  assets keep their long cache on Windows too.
+
+### 6. The HUD pause button soft-locks the results screen
+
+- **File:** `src/main.js` — `pauseMatch`, `finishMatch`.
+- **Repro:** the HUD stayed visible under the modal results dialog. Clicking ⏸ there showed the
+  pause overlay (`Session.pause` no-ops on a terminal state, but the UI did not); Resume then
+  called `showNone()`, hiding results *and* pause and leaving an empty screen. Playwright confirmed
+  `#btn-retry` became unclickable ("element is not visible").
+- **Fix:** `pauseMatch` is a no-op unless a match is actually running, `resumeMatch` only acts from
+  the pause screen, and `finishMatch` hides the HUD so nothing live sits behind an `aria-modal` dialog.
+
+### 7. Restart leaves a held movement key inert
+
+- **File:** `src/main.js` — `beginMatch`.
+- **Repro:** hold →, pause, Restart. `lastSent` still held `{dx:100}` from the previous match while
+  the new void started at zero intent, so the "only submit when intent changes" check never fired.
+  Measured: the player label stayed at exactly `970.559px` for the whole post-restart sample.
+- **Fix:** `beginMatch` resets `lastSent`, `boostToggle`, `boostHeld` and the boost button's active
+  state. Measured after the fix: `1158.6px → 1207.8px`.
+
+### 8. Focus and key handling around the settings/help overlays
+
+- **Files:** `src/ui.js` — `overlay`/`back`/`restoreFocus`, `buildBindEditor`; `src/main.js` — keydown.
+- **Repro:** `show()` overwrites `lastFocus` on every transition, so closing Settings restored focus
+  to a control inside the now-hidden overlay; measured focus landed on `#btn-play` instead of the
+  `#btn-settings` opener. Separately, the key-capture during a rebind did not stop propagation, so
+  pressing Escape to cancel also reached the UI's own Escape handler and closed the whole panel
+  (Playwright: `#btn-settings-close` gone), and the pause binding could re-open pause from behind an
+  overlay.
+- **Fix:** the opener is captured in `overlay()` and restored in `back()`, `restoreFocus` refuses
+  hidden targets, the rebind capture calls `stopPropagation` / cancels on Escape / allows only one
+  pending capture, and the pause key is ignored while settings or help is open.
+
 ## Suspected — not confirmed
+
+(Items 2–4 of this section were confirmed and fixed on 2026-09-07 — see the review pass above.)
 
 ### 1. Command de-duplication remembers only the previous id
 
@@ -77,36 +158,6 @@ All five confirmed defects were reproduced against the running server (port 3940
 - **Why unconfirmed:** a `move` command only sets movement intent that the next tick would overwrite
   anyway, so no incorrect outcome could be produced; whether the weaker guarantee is acceptable here is
   a design call.
-
-### 2. Unbounded WebSocket frame length declaration
-
-- **File:** `server.js:100` — `else if (len === 127) { … len = Number(buf.readBigUInt64BE(p)); p += 8; }`
-- **Concern:** there is no cap on the declared payload length, and `client.buf` is only checked
-  (`> 65536`) *after* the concat, so a client can keep the connection buffering toward that bound
-  repeatedly. There is also no rejection of unmasked client frames, which RFC 6455 requires.
-- **Why unconfirmed:** the 64 KB buffer check does bound memory per connection, so no exhaustion could
-  be demonstrated.
-
-### 3. Malformed percent-escape returns 500 rather than 400
-
-- **File:** `server.js:52` — `let path = normalize(decodeURIComponent(url.pathname));` inside the
-  handler's `try`/`catch`
-- **Concern:** `GET /%E0%A4%A` throws `URIError`, which the outer catch turns into
-  `500 {"error":"internal"}`. A malformed request path is a client error and should be 400/404.
-- **Why unconfirmed:** the process survives (unlike three sibling games in this batch), so this is a
-  status-code nit rather than a fault; whether it matters depends on the host's error handling.
-
-### 4. Dead traversal guard, and a cache header that never fires on Windows
-
-- **File:** `server.js:53` — `if (path.includes('..')) { res.writeHead(403); res.end(); return; }`, and
-  `server.js:59` — `const immutable = /\.(js|css|png|svg)$/.test(file) && path.includes('/vendor/');`
-- **Concern:** `normalize()` on the line above already collapses every `..` segment, so the 403 branch
-  is unreachable — the real safety comes from `join(ROOT, …)` with `ROOT` carrying a trailing separator.
-  Separately, on Windows `normalize` yields backslashes, so the `'/vendor/'` test never matches and
-  vendored assets lose their `immutable` caching.
-- **Why unconfirmed:** neither produces incorrect behaviour on this platform; the traversal guard being
-  dead is a robustness smell rather than a live hole (a raw `GET /../fleet-signals/spec.md` correctly
-  returned 404).
 
 ## Checked, no defects found
 

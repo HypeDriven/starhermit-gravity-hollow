@@ -13,7 +13,7 @@
     "threejs",
     "arena"
   ],
-  "license": "UNLICENSED",
+  "license": "SEE LICENSE IN LICENSE.md",
   "private": true,
   "dependencies": {
     "three": "^0.160.1"

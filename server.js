@@ -52,13 +52,18 @@ const server = createServer(async (req, res) => {
       res.end(JSON.stringify({ error: 'not_found' }));
       return;
     }
-    let path = normalize(decodeURIComponent(url.pathname));
-    if (path.includes('..')) { res.writeHead(403); res.end(); return; }
+    let decoded;
+    try { decoded = decodeURIComponent(url.pathname); }
+    catch { res.writeHead(400); res.end('bad request'); return; } // malformed %-escape is a client error
+    let path = normalize(decoded);
     if (path === '/' || path === '\\') path = '/index.html';
     const file = join(ROOT, path);
+    // `normalize` collapses `..`, but confirm containment rather than trusting it
+    if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
     const st = await stat(file).catch(() => null);
     if (!st?.isFile()) { res.writeHead(404); res.end('not found'); return; }
-    const immutable = /\.(js|css|png|svg)$/.test(file) && path.includes('/vendor/');
+    // test the URL path, not the OS path: `join` yields backslashes on Windows
+    const immutable = /\.(js|css|png|svg)$/.test(url.pathname) && url.pathname.includes('/vendor/');
     res.writeHead(200, {
       'content-type': MIME[extname(file)] ?? 'application/octet-stream',
       'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
@@ -73,6 +78,7 @@ const server = createServer(async (req, res) => {
 // -------------------------------------------------------- WebSocket layer
 
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+const MAX_FRAME = 65536; // per-message bound, matching the per-connection buffer bound
 
 function wsAccept(key) {
   return createHash('sha1').update(key + WS_GUID).digest('base64');
@@ -105,6 +111,9 @@ function wsDecode(buf, frag = { data: Buffer.alloc(0), type: 0 }) {
     let p = off + 2;
     if (len === 126) { if (p + 2 > buf.length) break; len = buf.readUInt16BE(p); p += 2; }
     else if (len === 127) { if (p + 8 > buf.length) break; len = Number(buf.readBigUInt64BE(p)); p += 8; }
+    // RFC 6455 §5.1: client frames must be masked, and no legitimate client
+    // message approaches the connection buffer bound.
+    if (!masked || len > MAX_FRAME) return [msgs, buf, { data, type, fatal: true }];
     const maskLen = masked ? 4 : 0;
     if (p + maskLen + len > buf.length) break;
     let payload = buf.subarray(p + maskLen, p + maskLen + len);
@@ -121,6 +130,8 @@ function wsDecode(buf, frag = { data: Buffer.alloc(0), type: 0 }) {
     } else if (op === 0) { // continuation
       data = Buffer.concat([data, payload]);
       type = type || 1;
+      // reassembly is unbounded by the per-chunk buffer check; bound it here
+      if (data.length > MAX_FRAME) return [msgs, buf, { data: Buffer.alloc(0), type: 0, fatal: true }];
       if (fin) { msgs.push({ type: type === 2 ? 'binary' : 'text', payload: data }); data = Buffer.alloc(0); type = 0; }
     }
     off = p + maskLen + len;
@@ -176,8 +187,17 @@ function startMatch(room) {
     playerName: seats[0]?.name ?? 'Host',
     rivals: [...humansAsRivals, ...rivals].slice(0, 7),
   });
-  // mark human voids as non-AI and bind seats
-  seats.forEach((c, i) => { c.voidId = i; room.state.voids[i].ai = false; room.state.voids[i].name = c.name; });
+  // Mark human voids as non-AI and bind seats. Seats are re-keyed to void ids so
+  // that the two agree for the rest of the match — the reconnect path assumes it,
+  // and pre-match churn (a joiner leaving) otherwise leaves them out of step.
+  room.clients.clear();
+  seats.forEach((c, i) => {
+    c.voidId = i; c.seat = i;
+    room.clients.set(i, c);
+    room.state.voids[i].ai = false;
+    room.state.voids[i].name = c.name;
+  });
+  room.hostId = seats.length ? 0 : null;
   room.reconnects.clear(); // no abandoned seats in a fresh match
   room.started = true;
   broadcast(room, c => c.send({ op: 'started', seat: c.voidId }));
@@ -232,7 +252,7 @@ server.on('upgrade', (req, sock) => {
     sock, room: null, seat: -1, voidId: -1, name: 'guest', buf: Buffer.alloc(0),
     frag: { data: Buffer.alloc(0), type: 0 }, // WebSocket continuation reassembly state
     rate: [], // sliding window for rate limiting
-    send(msg) { wsSend(sock, JSON.stringify(msg)); },
+    send(msg) { if (sock.writable) wsSend(sock, JSON.stringify(msg)); },
     sendBinary(buf) { if (sock.writable) wsSend(sock, buf); },
   };
 
@@ -240,8 +260,9 @@ server.on('upgrade', (req, sock) => {
     client.buf = Buffer.concat([client.buf, chunk]);
     if (client.buf.length > 65536) { wsClose(sock); return; } // payload size bound
     const [msgs, rest, frag] = wsDecode(client.buf, client.frag);
-    client.buf = rest;
+    client.buf = frag.fatal ? Buffer.alloc(0) : rest;
     client.frag = frag;
+    if (frag.fatal) { cleanup(client); wsClose(sock); return; } // protocol violation
     for (const m of msgs) {
       if (m.type === 'close') { cleanup(client); wsClose(sock); return; }
       if (m.type === 'ping') { wsSend(sock, m.payload, 0xA); continue; } // real PONG control frame
@@ -326,20 +347,26 @@ function handleMessage(client, msg) {
 function cleanup(client) {
   const room = client.room;
   if (!room) return;
-  room.clients.delete(client.seat);
+  const { seat, voidId } = client;
+  room.clients.delete(seat);
   client.room = null;
+  client.voidId = -1; client.seat = -1; // a later `join` on this socket starts clean
   // remember an abandoned live-match seat so its owner can rejoin via `token`
-  if (room.started && room.state && client.voidId >= 0 && client.token) {
-    room.reconnects.set(client.voidId, { token: client.token, name: client.name, voidId: client.voidId });
+  if (room.started && room.state && voidId >= 0 && client.token) {
+    room.reconnects.set(voidId, { token: client.token, name: client.name, voidId });
+  }
+  // the void stays in the match as an AI seat (abandonment policy) — including
+  // when it was the last human, so an abandoned void does not coast on stale intent
+  if (room.started && room.state && voidId >= 0) {
+    const v = room.state.voids[voidId];
+    if (v) { v.ai = true; v.input.dx = 0; v.input.dy = 0; v.input.boost = false; }
   }
   if (room.clients.size === 0) {
     if (room.started) return; // keep the running match alive for a reconnect
     if (room.timer) clearInterval(room.timer);
     rooms.delete(room.name);
   } else {
-    if (room.hostId === client.seat) room.hostId = room.clients.keys().next().value;
-    // the void stays in the match as an AI seat (abandonment policy)
-    if (room.state && client.voidId >= 0) room.state.voids[client.voidId].ai = true;
+    if (room.hostId === seat) room.hostId = room.clients.keys().next().value;
     broadcast(room, c => c.send({ op: 'roster', seats: roster(room) }));
   }
 }

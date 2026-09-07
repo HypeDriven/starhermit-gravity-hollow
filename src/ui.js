@@ -3,6 +3,7 @@
 
 import { ACHIEVEMENTS } from './session.js';
 import { JOURNEY_COUNT } from './content.js';
+import { TICK_RATE } from './rules.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -36,17 +37,25 @@ export class UI {
   }
   overlay(name) { // settings/help over current screen
     this.under = this.current;
+    // remember the opener now: `show` overwrites lastFocus on every transition,
+    // so by the time `back()` runs it points at a control inside the overlay.
+    this.overlayFocus = document.activeElement;
     this.show(name);
   }
   back() {
     const target = this.under && ['settings', 'help'].includes(this.current) ? this.under : 'title';
+    const opener = this.overlayFocus;
     this.under = null;
+    this.overlayFocus = null;
     if (target === null || target === 'none') this.show(null);
     else this.show(target);
-    this.restoreFocus();
+    this.restoreFocus(opener);
   }
   showNone() { this.show(null); }
-  restoreFocus() { if (this.lastFocus?.focus) { try { this.lastFocus.focus(); } catch {} } }
+  restoreFocus(el = this.lastFocus) {
+    // never send focus into a hidden screen
+    if (el?.focus && el.isConnected && !el.closest?.('.hidden')) { try { el.focus(); } catch {} }
+  }
 
   // ---- feedback ----------------------------------------------------------
 
@@ -169,7 +178,7 @@ export class UI {
 
   updateHud(state, stage, query) {
     const me = state.voids[0];
-    const remain = Math.max(0, stage.durationSec - state.tick / 30);
+    const remain = Math.max(0, stage.durationSec - state.tick / TICK_RATE);
     $('hud-timer').textContent = fmtTime(remain);
     $('hud-timer').style.color = remain < 15 ? 'var(--danger)' : '';
     const goals = state.goals.map(g =>
@@ -178,7 +187,7 @@ export class UI {
     $('hud-goals').innerHTML = goals || '<span class="dim">Outscore every rival</span>';
     let score = `<div>Mass <strong>${Math.floor(me.mass)}</strong> · Collected <strong>${me.propMass + me.gemMass + me.rivalMass}</strong></div>`;
     if (!me.alive) score += `<div class="dim">Respawning…</div>`;
-    if (query?.moveTicksLeft != null) score += `<div>Moves left ${(query.moveTicksLeft / 30).toFixed(0)}s</div>`;
+    if (query?.moveTicksLeft != null) score += `<div>Moves left ${(query.moveTicksLeft / TICK_RATE).toFixed(0)}s</div>`;
     if (query?.boostsLeft != null) score += `<div>Boosts left ${query.boostsLeft}</div>`;
     $('hud-score').innerHTML = score;
     const ranks = [...state.voids].sort((a, b) =>
@@ -273,12 +282,20 @@ export class UI {
         btn.className = 'ghost small';
         btn.textContent = 'rebind';
         btn.addEventListener('click', () => {
+          this._cancelRebind?.();          // only one capture at a time
           btn.textContent = 'press a key…';
           const h = (e) => {
+            // swallow the key completely: it must not also pause, steer or close a panel
             e.preventDefault();
+            e.stopPropagation();
+            this._cancelRebind();
+            if (e.code === 'Escape') { render(); return; } // Escape cancels
             settings.bindings[action] = [e.code];
-            document.removeEventListener('keydown', h, true);
             onChange('bindings'); render();
+          };
+          this._cancelRebind = () => {
+            document.removeEventListener('keydown', h, true);
+            this._cancelRebind = null;
           };
           document.addEventListener('keydown', h, true);
         });

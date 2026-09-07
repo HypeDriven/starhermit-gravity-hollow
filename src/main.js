@@ -313,6 +313,13 @@ class App {
     this.ui.setUndoVisible(!!stage.undoAllowed);
     this.prevState = null;
     this.matchFlow = 'playing';
+    // A fresh void starts with zero intent; carrying `lastSent` over from the
+    // previous match would suppress the first submit and leave a held key inert.
+    this.lastSent = { dx: 0, dy: 0, boost: false };
+    this.boostToggle = false;
+    this.boostHeld = false;
+    this._lastCount = null;
+    $('btn-boost').classList.remove('active');
 
     this.session = new Session(stage, {
       playerName: this.save.profile.name,
@@ -341,13 +348,16 @@ class App {
   }
 
   pauseMatch() {
-    if (!this.session) return;
+    // The HUD pause button outlives the match; pausing over the results dialog
+    // would hide it with no way back.
+    if (!this.session || this.matchFlow !== 'playing' || Rules.isTerminal(this.session.state)) return;
     this.session.pause('user');
     $('pause-away').textContent = '';
     this.ui.show('pause');
     this.audio.event('ui_back');
   }
   resumeMatch() {
+    if (this.ui.current !== 'pause') return;
     this.ui.showNone();
     this.session?.resume();
     this.audio.event('ui_confirm');
@@ -425,7 +435,7 @@ class App {
     }
     // countdown numbers
     if (state.phase === 'countdown') {
-      const n = Math.ceil(state.countdownTicks / 30);
+      const n = Math.ceil(state.countdownTicks / Rules.TICK_RATE);
       this.ui.countdown(String(n));
       if (n !== this._lastCount) { this._lastCount = n; this.audio.event('countdown'); }
     }
@@ -435,6 +445,7 @@ class App {
   finishMatch() {
     const results = this.session.finish();
     this.ui.countdown(null);
+    this.ui.showHud(false); // the results dialog is modal — no live HUD behind it
     this.audio.stopMusic();
     const me = results.rankings.find(r => r.id === 0);
     this.audio.event(me?.place === 1 ? 'round_end' : 'defeat');
@@ -485,7 +496,10 @@ class App {
       if (e.repeat) return;
       this.keys.add(e.code);
       const b = this.settings.bindings;
-      if (b.pause.includes(e.code)) {
+      // Settings/help sit over the pause screen and close themselves on Escape;
+      // re-entering pause from there would strand the player behind two panels.
+      const overlayOpen = ['settings', 'help'].includes(this.ui.current);
+      if (b.pause.includes(e.code) && !overlayOpen) {
         if (this.matchFlow === 'playing') {
           if (this.ui.current === 'pause') this.resumeMatch(); else this.pauseMatch();
         }
