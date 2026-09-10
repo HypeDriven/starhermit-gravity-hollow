@@ -22,3 +22,13 @@ Generated with MOSS-SoundEffect v2.0, 48 kHz mono Opus (96 kbps VBR, loudness-no
 | undo-rewind.opus | undo | A brief reversed tape warble, like a small ribbon being pulled back through a slot, quick descending flutter |
 | hint-spark.opus | hint | A tiny bright metallic ping, like a needle tapping a small silver bell once, delicate and curious |
 | achievement-unlock.opus | achievement | A short joyful cascade of small brass bells and a light wooden clap, like a tiny trophy being set on a shelf with a celebratory ring |
+| clock-warning.opus | clock_warning | A single soft low wooden drum hit followed by a short tense rising shaker swell, urgent but quiet, like a warning before a final stretch |
+| move-limit-stop.opus | move_limit | A heavy soft thud like a full sandbag dropped onto pavement and settling, with a brief dull rumble, then silence |
+| eat-boulder.opus | eat_boulder | A deep hollow crunch like a large dry gourd being crushed slowly, layered with a low throaty gulp, heavy and satisfying |
+| lesson-complete.opus | lesson_complete | A gentle two-note hand-bell resolution followed by a soft warm kalimba chord, calm and encouraging, with a natural ringing decay |
+| swallowed.opus | swallowed | A sudden inward gulp implosion, air sucked into a hollow with a low muffled boom and a brief dull ring, ominous and final |
+| amb-garden.opus | ambience_garden | Night garden ambience loop: soft crickets, a small stone fountain trickling steadily, faint leaves rustling in a light breeze, calm and continuous |
+| amb-forge.opus | ambience_forge | Dim forge ambience loop: low steady crackle of coals, occasional soft metallic ticks as metal cools, warm air hum, continuous and quiet |
+| amb-shore.opus | ambience_shore | Calm night shore ambience loop: small waves lapping against smooth stone, gentle steady wind, distant water lapping, continuous and quiet |
+| amb-market.opus | ambience_market | Empty dusk bazaar ambience loop: distant soft murmurs, awning fabric flapping gently, a small wind chime tinkling now and then, continuous and quiet |
+| amb-tundra.opus | ambience_tundra | Frozen tundra night ambience loop: thin steady cold wind, faint distant ice creaks, hushed snowfall, continuous and quiet |

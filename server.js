@@ -33,7 +33,7 @@ const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.json': 'application/json', '.txt': 'text/plain; charset=utf-8',
-  '.png': 'image/png', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
+  '.png': 'image/png', '.webp': 'image/webp', '.svg': 'image/svg+xml', '.ico': 'image/x-icon',
   '.opus': 'audio/ogg; codecs=opus',
 };
 
@@ -60,6 +60,8 @@ const server = createServer(async (req, res) => {
     const file = join(ROOT, path);
     // `normalize` collapses `..`, but confirm containment rather than trusting it
     if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
+    // dev-only material is never served: tests/, tools/, dotfiles, node_modules/
+    if (/^\/(tests|tools|node_modules)(\/|$)|\/\./.test(path.replace(/\\/g, '/'))) { res.writeHead(404); res.end('not found'); return; }
     const st = await stat(file).catch(() => null);
     if (!st?.isFile()) { res.writeHead(404); res.end('not found'); return; }
     // test the URL path, not the OS path: `join` yields backslashes on Windows

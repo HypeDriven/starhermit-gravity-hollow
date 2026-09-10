@@ -42,5 +42,28 @@ bad2.result.finalHash = 'deadbeef';
 const r3 = verifyReplay(bad2, stage);
 ok(!r3.ok, 'tampered final hash detected');
 
+// a rejected command that mutated invalid must still verify when recorded (Session.submitMove records these)
+{
+  const st = Rules.createMatch({ ...stage, playerName: 'T' });
+  const rp = {
+    schema: 1, build: '1.0.0', contentVersion: stage.version, seed: stage.seed, stageId: stage.id,
+    initialHash: Rules.hashState(st), startedAt: 0, commands: [], hashes: [], result: null,
+  };
+  let tc = 0, sq = 0;
+  while (!Rules.isTerminal(st)) {
+    if (st.tick === 10) {
+      const cmd = { id: `local-${stage.id}-${sq}`, voidId: 0, seq: sq++, type: 'move', dir: [200, 0], boost: false };
+      const verdict = Rules.applyCommand(st, cmd);         // dir_out_of_range: rejected, invalid++
+      ok(!verdict.ok, 'out-of-range command rejected');
+      rp.commands.push([tc, cmd.seq, cmd.dir[0], cmd.dir[1], 0]);   // recorded as Session now does
+    }
+    Rules.step(st);
+    if (++tc % 60 === 0) rp.hashes.push({ step: tc, tick: st.tick, hash: Rules.hashState(st) });
+  }
+  rp.result = { reason: Rules.terminalReason(st), finalHash: Rules.hashState(st), rankings: [] };
+  const r = verifyReplay(rp, stage);
+  ok(r.ok, `replay with rejected command verifies (${r.why ?? 'ok'})`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

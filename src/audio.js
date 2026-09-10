@@ -16,6 +16,13 @@ const SFX_SAMPLES = {
   respawn: 'respawn-bloom', goal: 'goal-chime', countdown: 'countdown-tick',
   go: 'go-signal', round_end: 'round-end-fanfare', defeat: 'defeat-fall',
   undo: 'undo-rewind', hint: 'hint-spark', achievement: 'achievement-unlock',
+  clock_warning: 'clock-warning', move_limit: 'move-limit-stop', eat_boulder: 'eat-boulder',
+  lesson_complete: 'lesson-complete', swallowed: 'swallowed',
+};
+
+// theme id -> looping ambience bed (sfx/<basename>.opus); procedural noise is the fallback
+const AMBIENCE_SAMPLES = {
+  verdant: 'amb-garden', ember: 'amb-forge', tide: 'amb-shore', dusk: 'amb-market', frost: 'amb-tundra',
 };
 
 export class AudioEngine {
@@ -106,15 +113,22 @@ export class AudioEngine {
       src.start();
       return true;
     }
-    if (!entry) {
-      this.samples.set(basename, { state: 'loading' });
-      fetch(`sfx/${basename}.opus`)
-        .then(r => { if (!r.ok) throw new Error(`sfx ${r.status}`); return r.arrayBuffer(); })
-        .then(ab => this.ctx.decodeAudioData(ab))
-        .then(buffer => this.samples.set(basename, { state: 'ready', buffer }))
-        .catch(() => this.samples.set(basename, { state: 'failed' }));
-    }
+    if (!entry) this.loadSample(basename);
     return false;
+  }
+
+  loadSample(basename) {
+    if (this.samples.has(basename)) return;
+    this.samples.set(basename, { state: 'loading' });
+    fetch(`sfx/${basename}.opus`)
+      .then(r => { if (!r.ok) throw new Error(`sfx ${r.status}`); return r.arrayBuffer(); })
+      .then(ab => this.ctx.decodeAudioData(ab))
+      .then(buffer => {
+        this.samples.set(basename, { state: 'ready', buffer });
+        // an ambience bed that finished decoding mid-match replaces the procedural fallback
+        if (this.ambTheme && AMBIENCE_SAMPLES[this.ambTheme] === basename) this.startAmbience(this.ambTheme);
+      })
+      .catch(() => this.samples.set(basename, { state: 'failed' }));
   }
 
   // ---- event mapping (event hierarchy: ack < move < combo/goal < round) ---
@@ -122,6 +136,7 @@ export class AudioEngine {
   event(name, opts = {}) {
     if (this.settings.muted) { this.say(captionFor(name, opts)); return; }
     this.resume();
+    if (name === 'eat' && (opts.mass ?? 1) >= 8) name = 'eat_boulder'; // boulders get the heavy crunch
     const sample = SFX_SAMPLES[name];
     if (sample && this.playSample(sample)) { this.say(captionFor(name, opts)); return; }
     const v = 1 + (this.rng() - 0.5) * 0.12; // seeded pitch variant
@@ -136,6 +151,25 @@ export class AudioEngine {
         this.blip({ f0: (300 + s * 260) * v, f1: (500 + s * 320) * v, dur: 0.08, gain: 0.12 });
         break;
       }
+      case 'eat_boulder':
+        this.noise({ dur: 0.14, gain: 0.24, freq: 420, q: 0.7 });
+        this.blip({ f0: 220 * v, f1: 90 * v, dur: 0.18, type: 'triangle', gain: 0.16 });
+        break;
+      case 'swallowed':
+        this.noise({ dur: 0.35, gain: 0.3, freq: 240, q: 0.6 });
+        this.blip({ f0: 140, f1: 40, dur: 0.45, type: 'sawtooth', gain: 0.22 });
+        break;
+      case 'clock_warning':
+        this.blip({ f0: 110, dur: 0.22, type: 'triangle', gain: 0.18, bus: 'voice' });
+        this.noise({ dur: 0.5, gain: 0.08, freq: 3000, q: 0.5, when: 0.1, type: 'highpass', bus: 'voice' });
+        break;
+      case 'move_limit':
+        this.noise({ dur: 0.2, gain: 0.2, freq: 180, q: 0.8 });
+        this.blip({ f0: 90, f1: 50, dur: 0.3, type: 'triangle', gain: 0.18 });
+        break;
+      case 'lesson_complete':
+        [523, 659, 784, 1046].forEach((f, i) => this.blip({ f0: f, dur: 0.35, gain: 0.13, when: i * 0.12, bus: 'voice' }));
+        break;
       case 'eat_gem':
         this.blip({ f0: 880 * v, f1: 1320 * v, dur: 0.16, gain: 0.16 });
         this.blip({ f0: 1320 * v, f1: 1760 * v, dur: 0.2, gain: 0.1, when: 0.06 });
@@ -203,6 +237,21 @@ export class AudioEngine {
   startAmbience(themeId = 'verdant') {
     if (!this.ensure()) return;
     this.stopAmbience();
+    this.ambTheme = themeId;
+    // authored bed: loop the decoded clip on the ambience bus; otherwise fetch it
+    // for next time and fall back to the procedural filtered-noise bed below
+    const bed = AMBIENCE_SAMPLES[themeId];
+    const entry = bed ? this.samples.get(bed) : null;
+    if (entry?.state === 'ready') {
+      const src = this.ctx.createBufferSource();
+      src.buffer = entry.buffer; src.loop = true;
+      const g = this.ctx.createGain(); g.gain.value = 0.6;
+      src.connect(g); g.connect(this.buses.ambience);
+      src.start();
+      this.ambNodes.push(src);
+      return;
+    }
+    if (bed && !entry) this.loadSample(bed);
     const mk = (freq, gain) => {
       const len = this.ctx.sampleRate * 2;
       const buf = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
@@ -218,7 +267,7 @@ export class AudioEngine {
     };
     mk(themeId === 'ember' ? 220 : 400, 0.5);
   }
-  stopAmbience() { for (const n of this.ambNodes) { try { n.stop(); } catch {} } this.ambNodes = []; }
+  stopAmbience() { this.ambTheme = null; for (const n of this.ambNodes) { try { n.stop(); } catch {} } this.ambNodes = []; }
 }
 
 function captionFor(name, opts) {
@@ -226,6 +275,11 @@ function captionFor(name, opts) {
     case 'eat': return `consumed +${opts.mass ?? 1}`;
     case 'eat_gem': return 'gem consumed';
     case 'eat_void': return 'rival consumed';
+    case 'eat_boulder': return `boulder consumed +${opts.mass ?? 8}`;
+    case 'swallowed': return 'you were swallowed';
+    case 'clock_warning': return '15 seconds left';
+    case 'move_limit': return 'out of movement';
+    case 'lesson_complete': return 'lesson complete';
     case 'burn': return 'burned by an ember';
     case 'goal': return 'objective complete';
     case 'round_end': return 'round over';

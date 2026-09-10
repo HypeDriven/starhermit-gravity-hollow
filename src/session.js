@@ -173,9 +173,11 @@ export class Session {
       type: 'move', dir: [Math.round(dx), Math.round(dy)], boost: !!boost,
     };
     const verdict = Rules.applyCommand(this.state, cmd);
-    if (verdict.ok && !verdict.deduped) {
+    // Rejected moves still mutate the state (invalid++), so every non-deduped
+    // command the engine saw must be recorded or the replay hashes diverge.
+    if (!verdict.deduped) {
       this.replay.commands.push([this._tickCounter, cmd.seq, cmd.dir[0], cmd.dir[1], cmd.boost ? 1 : 0]);
-      if (this.undoAllowed) this.pushUndo();
+      if (verdict.ok && this.undoAllowed) this.pushUndo();
     }
     return verdict;
   }

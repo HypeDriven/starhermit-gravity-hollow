@@ -25,7 +25,7 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
   '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp',
   '.ico': 'image/x-icon', '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
   '.ogg': 'audio/ogg', '.opus': 'audio/ogg; codecs=opus', '.glb': 'model/gltf-binary',
   '.woff2': 'font/woff2', '.ts': 'text/typescript', '.md': 'text/markdown',
@@ -55,7 +55,8 @@ const server = createServer(async (req, res) => {
 let browser;
 const failures = [];
 try {
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  // PORT pins the embedded server (CI port ranges); otherwise an ephemeral port
+  await new Promise((resolve) => server.listen(Number(process.env.PORT) || 0, '127.0.0.1', resolve));
   const BASE = `http://127.0.0.1:${server.address().port}`;
   browser = await chromium.launch({
     executablePath: '/usr/bin/google-chrome',

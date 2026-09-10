@@ -319,6 +319,7 @@ class App {
     this.boostToggle = false;
     this.boostHeld = false;
     this._lastCount = null;
+    this._clockWarned = false;
     $('btn-boost').classList.remove('active');
 
     this.session = new Session(stage, {
@@ -377,6 +378,7 @@ class App {
     this.matchFlow = 'title';
     this.renderer.loadStage(this.idleStage, null);
     this.audio.stopMusic();
+    this.audio.stopAmbience();
   }
 
   endSession() {
@@ -412,7 +414,7 @@ class App {
         case 'eat': if (e.id === 0) { this.audio.event('eat', { mass: e.m }); this.haptic(8); } break;
         case 'eat_gem': if (e.id === 0) { this.audio.event('eat_gem'); this.haptic(15); this.ui.announce('Gem consumed'); } break;
         case 'eat_void':
-          this.audio.event('eat_void');
+          this.audio.event(e.victim === 0 ? 'swallowed' : 'eat_void');
           this.haptic(40);
           this.ui.announce(e.id === 0 ? `You swallowed ${state.voids[e.victim].name}!` : `${state.voids[e.id].name} swallowed ${state.voids[e.victim].name}`, e.id !== 0 && e.victim === 0);
           break;
@@ -420,7 +422,7 @@ class App {
         case 'boost': if (e.id === 0) this.audio.event('boost'); break;
         case 'respawn': if (e.id === 0) { this.audio.event('respawn'); this.ui.announce('You respawned'); } break;
         case 'goal': this.audio.event('goal'); this.ui.toast('Objective complete!'); break;
-        case 'move_limit': if (e.ids.includes(0)) this.ui.toast('Out of movement!'); break;
+        case 'move_limit': if (e.ids.includes(0)) { this.audio.event('move_limit'); this.ui.toast('Out of movement!'); } break;
       }
       this.tutorial?.onEvent(e, state);
     }
@@ -432,6 +434,12 @@ class App {
     if (this.hudAcc % 12 === 0) {
       this.ui.updateHud(state, this.session.stage, this.session.query());
       this.audio.setIntensity(0.3 + 0.6 * (state.tick / state.config.durationTicks));
+      // one warning cue when the timer turns red (15 s left) — see ui.updateHud
+      const remain = this.session.stage.durationSec - state.tick / Rules.TICK_RATE;
+      if (state.phase === 'active' && remain < 15 && !this._clockWarned) {
+        this._clockWarned = true;
+        this.audio.event('clock_warning');
+      }
     }
     // countdown numbers
     if (state.phase === 'countdown') {
@@ -703,6 +711,7 @@ class TutorialRun {
       this.app.ui.tutorialBanner(null);
       this.app.renderer.setMarkers([]);
       this.app.ui.toast('Lesson complete!');
+      this.app.audio.event('lesson_complete');
       // end the lesson; the session loop detects the terminal state and
       // produces results (which records tutorial completion)
       this.app.session.state.phase = 'ended';

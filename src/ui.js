@@ -223,6 +223,11 @@ export class UI {
       terminalReason === 'moves_exhausted' ? 'Out of moves' :
       won ? 'You rule the plaza!' : `${ordinal(me?.place ?? 0)} place`;
     $('results-h').textContent = `${stage.name} — Results`;
+    const art = $('results-art');
+    if (art) { // illustration: win/lesson vs defeat; onerror hides it, layout never depends on it
+      art.hidden = false;
+      art.src = won || terminalReason === 'lesson_complete' ? 'assets/results-win.webp' : 'assets/results-defeat.webp';
+    }
     const ol = $('results-standings');
     ol.innerHTML = '';
     for (const r of rankings) {
