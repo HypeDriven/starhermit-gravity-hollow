@@ -86,8 +86,25 @@ export class UI {
     const cleared = Object.keys(save.journey).length;
     $('journey-sub').textContent = `${cleared} / ${JOURNEY_COUNT}`;
     $('profile-sub').textContent = save.profile.name;
+    this.renderSync();
   }
   setDailySub(text) { $('daily-sub').textContent = text; }
+
+  // Sync status lives where the profile/save state is shown (title + profile).
+  setSyncStatus(status) { this._sync = status; this.renderSync(); }
+  renderSync() {
+    const status = this._sync ?? (this.app.platform ? 'saving' : 'local');
+    const text = {
+      synced: 'Cloud save synced',
+      saving: 'Saving to cloud…',
+      offline: 'Cloud unreachable — saved on this device',
+      local: 'Progress saved on this device',
+    }[status] ?? '';
+    for (const id of ['sync-status', 'profile-sync']) {
+      const el = $(id);
+      if (el) el.textContent = text;
+    }
+  }
 
   // ---- mode select --------------------------------------------------------
 
@@ -106,7 +123,7 @@ export class UI {
 
   // ---- setup ---------------------------------------------------------------
 
-  buildSetup(stage, meta) {
+  buildSetup(stage, meta, board) {
     const host = $('setup-body');
     const goals = (stage.goals ?? []).map(g => `<li>${goalText(g)}</li>`).join('') || '<li>Outscore every rival.</li>';
     host.innerHTML = `
@@ -119,7 +136,12 @@ export class UI {
         <dt>Ranked</dt><dd>${stage.unrated ? 'No (practice)' : stage.excluded ? 'Excluded from ranking' : 'Yes'}</dd>
         <dt>Undo</dt><dd>${stage.undoAllowed ? 'allowed' : 'not allowed'}</dd>
       </dl>
-      <h4>Objectives</h4><ul>${goals}</ul>`;
+      <h4>Objectives</h4><ul>${goals}</ul>` +
+      (board?.entries?.length ? `
+      <h4>Plaza standings</h4>
+      <ol class="board">${board.entries.map(e =>
+        `<li class="${e.me ? 'me' : ''}">${e.rank}. ${escapeHtml(e.name)} — ${e.score}</li>`).join('')}</ol>
+      <p class="dim">${board.me ? `Your rank: ${board.me.rank} (${board.me.score})` : 'Solo scores stay on this device; the platform board is read-only.'}</p>` : '');
   }
 
   // ---- journey --------------------------------------------------------------
@@ -144,19 +166,31 @@ export class UI {
   // ---- profile / achievements -------------------------------------------------
 
   buildProfile(save) {
-    $('profile-body').innerHTML = `
-      <p><strong>${escapeHtml(save.profile.name)}</strong> ${save.profile.guest ? '<span class="dim">(guest — progress stored on this device)</span>' : ''}</p>
+    const hosted = !!this.app.platform?.userId;
+    const stats = `
       <dl class="breakdown">
         <dt>Sessions played</dt><dd>${save.sessionsPlayed}</dd>
         <dt>Mastery XP</dt><dd>${Math.floor(save.masteryXp)}</dd>
         <dt>Journey cleared</dt><dd>${Object.keys(save.journey).length} / ${JOURNEY_COUNT}</dd>
         <dt>Days played</dt><dd>${(save.playDays ?? []).length}</dd>
-      </dl>
-      <label>Display name <input type="text" id="profile-name" value="${escapeHtml(save.profile.name)}" maxlength="20"></label>`;
-    $('profile-name').addEventListener('change', (e) => {
-      const v = e.target.value.trim().slice(0, 20);
-      if (v) { save.profile.name = v; this.app.persistAll(); this.updateTitle(save); }
-    });
+      </dl>`;
+    if (hosted) {
+      // the name comes from the StarHermit account — no local edit on-platform
+      $('profile-body').innerHTML = `
+        <p><strong>${escapeHtml(save.profile.name)}</strong> <span class="dim">(StarHermit account)</span></p>
+        <p class="dim" id="profile-sync"></p>
+        ${stats}`;
+      this.renderSync();
+    } else {
+      $('profile-body').innerHTML = `
+        <p><strong>${escapeHtml(save.profile.name)}</strong> <span class="dim">(guest — progress stored on this device)</span></p>
+        ${stats}
+        <label>Display name <input type="text" id="profile-name" value="${escapeHtml(save.profile.name)}" maxlength="20"></label>`;
+      $('profile-name').addEventListener('change', (e) => {
+        const v = e.target.value.trim().slice(0, 20);
+        if (v) { save.profile.name = v; this.app.persistAll(); this.updateTitle(save); }
+      });
+    }
     const list = $('achievement-list');
     list.innerHTML = '';
     for (const [key, a] of Object.entries(ACHIEVEMENTS)) {

@@ -80,6 +80,11 @@ button.back { margin-top: 1rem; }
 .title-row { display: flex; gap: 0.6rem; justify-content: center; margin-top: 0.8rem; flex-wrap: wrap; }
 .title-panel .primary.big { width: 100%; margin: 0.6rem 0; }
 .title-row button { flex: 1; min-width: 96px; }
+#sync-status { margin: 0.3rem 0 0; font-size: 0.85rem; }
+
+/* read-only plaza standings on the setup card */
+ol.board { margin: 0.4rem 0; padding-left: 1.4em; }
+ol.board li.me { color: var(--accent); font-weight: 600; }
 
 /* cards */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.8rem; margin: 1rem 0; }

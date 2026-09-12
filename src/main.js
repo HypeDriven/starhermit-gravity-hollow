@@ -9,6 +9,7 @@ import { AudioEngine } from './audio.js';
 import { journeyAll, challenges, practiceStage, tutorials, dailyStage, validateAll } from './content.js';
 import * as Rules from './rules.js';
 import { mulberry32 } from './rng.js';
+import { connectPlatform } from './platform.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -29,6 +30,8 @@ class App {
     this.gamepad = { active: false };
     this.tutorial = null;
     this.serverOffset = 0; // server-time offset for daily boundaries
+    this.platform = null;  // StarHermit platform layer (null = offline play)
+    this.board = undefined;// cached read-only leaderboard (null = none/offline)
     this.rafHandle = null;
     this.hudAcc = 0;
     this.matchFlow = 'title';
@@ -45,6 +48,11 @@ class App {
       const bad = report.filter(([, r]) => !r.ok);
       if (bad.length) console.warn('[content] validation issues', bad);
     } catch (e) { console.warn('[content] validator failed', e); }
+
+    $('boot-status').textContent = 'Signing in…';
+    $('boot-progress').value = 40;
+    this.platform = connectPlatform();
+    if (this.platform) await this.signIn();
 
     $('boot-status').textContent = 'Syncing clock…';
     $('boot-progress').value = 50;
@@ -127,12 +135,34 @@ class App {
     }, 16);
   }
 
+  async signIn() {
+    // Hosted: resolve the account nickname, prefer the remote save, keep the
+    // local document as the offline cache. Any failure leaves local play as-is.
+    this.platform.onSyncStatus = (s) => this.ui.setSyncStatus(s);
+    const [nick, remote] = await Promise.all([
+      this.platform.loadProfile(),
+      this.platform.loadCloudSave(),
+    ]);
+    if (remote?.save) this.save = remote.save; // remote-preferred on conflict
+    this.save.profile = this.save.profile ?? { name: 'Wanderer', guest: true };
+    if (nick) { // the account name always wins over anything stored
+      this.save.profile.name = nick;
+      this.save.profile.guest = false;
+    }
+    if (remote?.save || nick) persistSave(this.save); // refresh the local cache
+    this.ui.setSyncStatus('synced');
+    this.platform.startRefresh();
+  }
+
   async syncTime() {
-    // Synchronize with the platform clock (same-origin /api/v1/time), using
-    // round-trip adjustment; fall back to local time when offline.
+    // Synchronize with the platform clock (same-origin /api/v1/time, Bearer
+    // when hosted), using round-trip adjustment; fall back to local time when
+    // offline.
     try {
       const t0 = Date.now();
-      const res = await fetch('/api/v1/time', { cache: 'no-store' });
+      const res = this.platform
+        ? await this.platform.api('/api/v1/time', { cache: 'no-store' })
+        : await fetch('/api/v1/time', { cache: 'no-store' });
       if (!res.ok) throw new Error('no time');
       const t1 = Date.now();
       const body = await res.json();
@@ -215,7 +245,11 @@ class App {
     if (persist) { persistSettings(s); this.ui.toast('Settings saved'); }
   }
 
-  persistAll() { persistSave(this.save); persistSettings(this.settings); }
+  persistAll() {
+    persistSave(this.save);
+    persistSettings(this.settings);
+    this.platform?.scheduleSave(this.save);
+  }
 
   onResize() { this.renderer?.resize(); }
 
@@ -228,7 +262,7 @@ class App {
       { name: 'Daily Hollow', desc: 'One shared seed per UTC day. Everyone gets the same plaza.', badge: 'ranked', onPick: () => this.openDaily() },
       { name: 'Practice', desc: 'Relaxed play with undo. Never rated.', onPick: () => this.openPractice() },
       { name: 'Challenges', desc: 'Move limits, no boost, cramped courts…', onPick: () => this.openChallenges() },
-      { name: 'Hosted Play', desc: 'Private rooms & quick match (when hosted).', badge: 'beta', onPick: () => this.openHosted() },
+      { name: 'Hosted Play', desc: 'Local lobby with AI seats. Realtime rooms are planned for a later build.', badge: 'local lobby', onPick: () => this.openHosted() },
     ];
     this.ui.buildModeCards(cards);
     this.ui.show('modes');
@@ -246,6 +280,18 @@ class App {
     const key = this.utcDateKey();
     const excluded = (this.save.dailyExcluded ?? []).includes(key);
     this.openSetup(dailyStage(key, excluded));
+    this.loadBoard();
+  }
+
+  // Read-only plaza standings for the setup card (hosted only). No submission:
+  // solo scores stay client-simulated; when there is no board we show nothing
+  // and the local records carry the day.
+  async loadBoard() {
+    if (!this.platform?.userId || this.board !== undefined) return;
+    this.board = await this.platform.fetchBoard(10);
+    if (this.board?.entries?.length && this.ui.current === 'setup' && this.pendingStage?.kind === 'daily') {
+      this.ui.buildSetup(this.pendingStage, this.pendingStage, this.board);
+    }
   }
   openPractice() {
     // difficulty picker as mode cards
@@ -266,8 +312,9 @@ class App {
     this.ui.show('modes');
   }
   openHosted() {
-    // Hosted play requires the StarHermit host (server.js). Same-origin /ws is
-    // probed; without it we offer a local lobby with AI seats.
+    // Honest local lobby: AI fills every seat. The shipped client never opens
+    // a WebSocket — platform realtime rooms are future work (see spec.md), so
+    // no button here promises seats we cannot seat.
     this.ui.buildModeCards([
       { name: 'Quick Match', desc: '4 voids, 2 minutes. AI fills empty seats.', badge: 'local lobby', onPick: () => this.openSetup(this.hostedStage(4, 120)) },
       { name: 'Big Table', desc: '8 voids, 3 minutes, crowded plaza.', badge: 'local lobby', onPick: () => this.openSetup(this.hostedStage(8, 180)) },
@@ -286,7 +333,7 @@ class App {
       emberCount: 6, propTarget: 110,
       propWeights: { crumb: 42, chunk: 30, boulder: 17, gem: 8, ember: 3 },
       goals: [], boost: 'on',
-      description: 'Local lobby with AI seats. Connect via server.js for real seats.',
+      description: 'Local lobby with AI seats. Realtime rooms are planned for a later build.',
     };
   }
 
@@ -460,6 +507,7 @@ class App {
 
     const before = new Set(Object.keys(this.save.achievements));
     recordResult(this.save, this.session, results);
+    this.platform?.scheduleSave(this.save); // mirror the fresh records to cloud
     const after = Object.keys(this.save.achievements).filter(k => !before.has(k));
     for (const k of after) {
       this.audio.event('achievement');

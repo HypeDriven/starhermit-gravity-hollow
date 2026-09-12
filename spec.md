@@ -12,7 +12,7 @@ Realtime collection arena: steer a hungry black **hollow** across a miniature ni
 | Session | 45 s–5 min per match (content `durationSec`); Learn lessons end when the last step is performed |
 | Platforms | Desktop and mobile browsers with WebGL; keyboard, mouse/touch drag, gamepad |
 | Rendering | Three.js r160 (`vendor/three.module.js`) perspective scene; all controls have DOM equivalents |
-| Persistence | `localStorage` only (`gravity-hollow:save:v1`, `:settings:v1`, `:replays:v1`) |
+| Persistence | `localStorage` (`gravity-hollow:save:v1`, `:settings:v1`, `:replays:v1`) is the offline cache; hosted (launch token) mirrors the save document to the platform cloud slot |
 | Host | `server.js` (static + `/api/v1/time` + authoritative `/ws` rooms), declared in `starhermit.txt` |
 
 File map:
@@ -25,10 +25,11 @@ File map:
 | `src/rules.js` | Pure engine: `createMatch`, `queryActions`, `applyCommand`, `step` (30 Hz), scoring, `rankings`, `hashState` |
 | `src/content.js` | Themes, 40 Journey stages, 8 challenges, 3 practice stages, 5 lessons, daily generator, validators |
 | `src/session.js` | Fixed-step loop, replay envelope + `verifyReplay`, undo, save/settings persistence, achievements |
+| `src/platform.js` | StarHermit layer: launch-token read/strip + refresh, account nickname, cloud-save mirror (stored zip), read-only leaderboard, sync status |
 | `src/render.js` | Three.js scene: instanced props, void views, pooled particles, quality tiers, spring camera |
 | `src/ui.js` | Screen manager, focus restoration, HUD, setup/results/help/settings builders, toasts, captions |
 | `src/audio.js` | WebAudio buses, authored Opus one-shots + ambience beds with synth fallbacks, adaptive music |
-| `src/main.js` | `App` state machine, input (keys/pointer/gamepad), `TutorialRun`, smoke autopilot |
+| `src/main.js` | `App` state machine, input (keys/pointer/gamepad), `TutorialRun`, smoke autopilot, platform sign-in wiring |
 | `server.js` | Node host: static files, time endpoint, WebSocket rooms with AI backfill and reconnect |
 | `sfx/*.opus`, `sfx/manifest.txt` | 28 authored clips and the canonical event binding table (§9) |
 | `assets/key-art.webp`, `assets/results-*.webp` | Title backdrop and results illustrations (§8) |
@@ -87,7 +88,7 @@ File map:
 | Daily Hollow | `dailyStage(utcDateKey)` from server-synced UTC date | 150 s, theme/arena/rivals/embers seeded by date, goal 4 gems | local record `{score, place}` |
 | Practice | relaxed / standard / intense | 120 s; 0/1/2 rivals; 0/3/6 embers; undo on; `unrated` | no |
 | Challenges | 8 fixed rulesets (Dusk Bazaar) | Sprint 45 s · No Boost Bout · Three Bursts (`boost:'limited'`, 3) · Measured Steps (25 s of movement, 300 s clock) · Gem Rush (gem weight 22, 3 rivals) · Ember Gauntlet (18 embers + survive) · Leviathan Tank (rivals ×3 / ×2.2 mass) · Cramped Court (half 26) | `{done, best}` |
-| Hosted Play | Quick Match (4 seats, 120 s) / Big Table (8 seats, 180 s) | local lobby: AI fills every seat, Tideglass theme, no obstacles, no goals | no |
+| Hosted Play | Quick Match (4 seats, 120 s) / Big Table (8 seats, 180 s) | honest local lobby: AI fills every seat, Tideglass theme, no obstacles, no goals; cards say so; the client opens no WebSocket | no |
 
 **Journey curve** (tier = ⌈i/5⌉): theme cycles verdant → ember → tide → dusk → frost; `arenaHalf = min(50, 34 + 2·tier)`; rivals `min(5, tier − 1 + mastery)` with skill `0.3 + 0.07·tier (+0–0.1)`; embers from tier 2 (`min(14, 3 + 2·tier)`); duration `100 + 5·tier` s (150 s on Mastery); boost off for stages 1–3. Concepts: 1–2 *collect* (score 60/80) → 3–4 *grow* (mass 90/100) → 5–6 *gems* (3–4 gems) → 7–9 *hazards* (score + zero deaths) → 10–14 *rivals* (swallow 1; 2 on stage 10) → 15–20 *combo* (gems + survive) → 21–30 *contest* (score + 1 rival) → 31–40 *mastery* (6 gems, 2 rivals, survive). Stage *n* unlocks when stage *n−1* has a record. Stars = won (1st place) + all objectives + zero deaths (`recordResult`). `masteryXp` accumulates mass collected.
 
@@ -199,14 +200,17 @@ The shipped build is **English only**: every string is inline in `index.html`, `
 | Platform feature | Status in this build |
 |---|---|
 | Distribution manifest (`starhermit.txt`: `name`, `launch`, `owner`, `server`, `version`, `cover`) | used |
-| Server time `GET /api/v1/time` (same-origin, round-trip adjusted, accepts `epochMs`/`serverTime`/`now`) | used for the daily boundary and countdown line (`main.js` `syncTime`) |
+| Launch token (`#game_token=` fragment, read once + stripped; query fallbacks local-dev only) | used when hosted — `sub`/`game_scope` decoded, `Authorization: Bearer` on every REST call, re-mint via `POST /api/v1/games/{slug}/launch-token` every 45 min (`src/platform.js`) |
+| Server time `GET /api/v1/time` (same-origin, round-trip adjusted, accepts `epochMs`/`serverTime`/`now`) | used for the daily boundary and countdown line (`main.js` `syncTime`, Bearer when hosted) |
 | Server script (`server=server.js`) | shipped: static host, `/api/v1/time`, authoritative rooms on `/ws` (join/roster/start/move/leave, token reconnect, AI backfill to 4 seats, 8 seats max, 15 Hz binary frames, 120 msg/10 s rate limit, 64 KB frame bound, refuses `tests/`, `tools/`, `node_modules/`, dotfiles) |
-| Identity / profile | not used — guest profile `Wanderer` stored locally, editable display name |
+| Identity / profile | used when hosted — nickname from `GET /api/v1/users/{sub}/profile` shown in the profile slot/results boards; local free-text name remains the offline fallback (`main.js` `signIn`, `ui.js` `buildProfile`) |
+| Cloud saves | used when hosted — save document mirrored to `GET/PUT /api/v1/me/cloud-saves/{slug}` (stored zip + base64), remote-preferred load, 2 s debounce + `pagehide` flush, sync status on title/profile; localStorage stays the offline cache |
+| Leaderboards | read-only when hosted — `GET /api/v1/games/{slug}` → `leaderboardId`, then `GET /api/v1/leaderboards/{id}/entries` (nicknames resolved via the profile helper) on the Daily setup card; solo scores are never submitted, daily/challenge records stay local |
+| Platform achievements | not used — the 7 achievements are local and part of the cloud-saved document (server.js is a Node host, not a Jint game script); no unlock calls |
 | Presence, friends, invites, chat, voice | not used |
-| Leaderboards, cloud saves, platform achievements | not used — daily/challenge records and the 7 achievements live in `localStorage` |
-| Realtime rooms from the client | not used — the client's Hosted Play runs a local lobby with AI seats; no `WebSocket` is opened by shipped client code |
+| Realtime rooms from the client | not used — Hosted Play is an honest local lobby with AI seats (clearly labelled); no `WebSocket` is opened by shipped client code |
 
-Conventions followed from the platform wiki: same-origin `/api` and `/ws` paths, structured `{"error":"..."}` responses, no credentials in local storage, results computed by the authoritative script for hosted rooms.
+Conventions followed from the platform wiki: same-origin `/api` and `/ws` paths, structured `{"error":"..."}` responses, no credentials in local storage, results computed by the authoritative script for hosted rooms, launch token read once from the fragment and stripped, `Bearer` auth on every REST call, nickname (never username) from the profile route, cloud slot keyed by `game_scope`.
 
 ## 13. Technical architecture
 
@@ -244,7 +248,7 @@ QA bar as checkable statements: (1) a new player sees instructions within the fi
 ## 16. Known limitations
 
 - Command de-duplication remembers only the previous command id per void (`rules.js` `applyCommand`), so an older id replayed after a different command is re-applied; harmless because a move only sets intent.
-- The client's Hosted Play never connects to `server.js` rooms; the `/ws` protocol is exercised only by external probes.
+- The client's Hosted Play is a local lobby with AI seats; server.js's `/ws` rooms are exercised only by external probes. Platform realtime rooms (host-routed) are future work.
 - Daily and challenge results are stored locally; there is no shared board, and `dailyExcluded` is read from the save but never written by any code path.
 - The title's "Journey n / 40" and "stages cleared" count any stage with a record, including 0-star attempts; `journey_20` correctly requires stars.
 - English only (see §10).
@@ -256,6 +260,6 @@ QA bar as checkable statements: (1) a new player sees instructions within the fi
 ## Design intent not yet implemented
 
 - Localization into en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR, it-IT with a string table and language selection from the platform profile or `navigator.language`.
-- Client-side hosted play over `/ws` (lobby roster, ready/start, binary state interpolation, token reconnect) using the room protocol `server.js` already implements.
-- Daily and challenge leaderboards, platform identity and cloud save for the local save document.
+- Platform realtime rooms for Hosted Play (host-routed: rooms API lobby/matchmaking + `/ws/v1/realtime` transport carrying the existing move/snapshot messages); until then Hosted Play stays an honest local lobby with AI seats.
+- Score submission to the platform leaderboard (read-only board today; solo scores stay client-simulated and locally recorded).
 - Marking a defective daily as excluded from ranking (the flag is honoured but never set).

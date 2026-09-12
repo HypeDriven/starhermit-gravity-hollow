@@ -29,7 +29,8 @@ Any static file server works for solo play (`npx serve .`, `python3 -m http.serv
 - **Daily Hollow** — one immutable seed per UTC day (server-time synced).
 - **Practice** — 3 difficulties, undo enabled, unrated.
 - **Challenges** — 8 constrained rulesets (move limits, no boost, cramped court…).
-- **Hosted Play** — local lobby with AI seats; real rooms when served by `server.js`.
+- **Hosted Play** — local lobby with AI seats (labelled as such; platform realtime rooms are planned).
+- **Platform (hosted)** — with a launch token the game signs in, shows your account nickname, mirrors saves to the cloud slot, and reads the plaza leaderboard (see `src/platform.js`).
 
 ## Architecture
 
@@ -42,7 +43,8 @@ Any static file server works for solo play (`npx serve .`, `python3 -m http.serv
 | `src/render.js` | Three.js scene: instanced props, void views, pooled particles, quality tiers, camera springs |
 | `src/ui.js` | DOM shell: screens, HUD, settings, help cards, live regions |
 | `src/audio.js` | procedural WebAudio: bus sliders, event sounds, adaptive music |
-| `src/main.js` | bootstrap, app state machine, input (keyboard/pointer/gamepad) |
+| `src/main.js` | bootstrap, app state machine, input (keyboard/pointer/gamepad), platform sign-in |
+| `src/platform.js` | StarHermit layer: launch token, account nickname, cloud-save mirror, read-only leaderboard |
 | `server.js` | static host, `/api/v1/time`, authoritative WS rooms with AI backfill |
 | `starhermit.txt` | distribution manifest (`name`, `launch`, `server`) |
 
