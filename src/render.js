@@ -304,15 +304,40 @@ export class Renderer {
     const dist = Math.max(CAM.minDist, half * CAM.distPerHalf);
     this.camDist = dist;
     if (snap) {
-      this.camTarget.set(0, 0, 0);
+      // Reset recentres on the player (falls back to the arena centre).
+      const me = this.currSnapshot?.voids?.[0];
+      if (me && me.alive) this.camTarget.set(me.x, 0, me.y); else this.camTarget.set(0, 0, 0);
+      this.camVel.set(0, 0, 0);
       this.positionCamera();
     }
   }
 
+  // Ground-plane half extents visible from the current camera (world units).
+  visibleHalfExtents() {
+    const d = this.camDist ?? 60;
+    const tanV = Math.tan(THREE.MathUtils.degToRad(CAM.fov / 2));
+    const tilt = THREE.MathUtils.degToRad(CAM.tiltDeg);
+    const halfW = d * tanV * (this.camera.aspect || 1);
+    const halfH = d * tanV / Math.sin(tilt);
+    return { halfW, halfH };
+  }
+
   followPlayer(state) {
     const me = state.voids[0];
-    const fx = me.alive ? me.x * CAM.follow : 0;
-    const fy = me.alive ? me.y * CAM.follow : 0;
+    // Follow strength grows as the view covers less of the arena (narrow
+    // portrait viewports), so the player is never framed out.
+    const half = this.camHalf ?? 40;
+    const { halfW, halfH } = this.visibleHalfExtents();
+    const cover = Math.min(halfW, halfH) / half;
+    const follow = THREE.MathUtils.clamp(1 - cover * (1 - CAM.follow), CAM.follow, 1);
+    let fx = me.alive ? me.x * follow : 0;
+    let fy = me.alive ? me.y * follow : 0;
+    if (me.alive) {
+      // hard margin: keep the player inside the inner 65% of the view
+      const mx = halfW * 0.5, my = halfH * 0.45;
+      fx = THREE.MathUtils.clamp(fx, me.x - mx, me.x + mx);
+      fy = THREE.MathUtils.clamp(fy, me.y - my, me.y + my);
+    }
     // critically damped spring toward the follow point — never cumulative lerp
     const dt = Math.min(0.05, this.clock.getDelta() || 1 / 60);
     const k = CAM.springK, c = CAM.springC;
