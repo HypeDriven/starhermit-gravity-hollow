@@ -7,6 +7,9 @@
 <meta name="theme-color" content="#0c1a12">
 <title>Gravity Hollow</title>
 <link rel="stylesheet" href="styles.css">
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/three/addons/" } }
+</script>
 </head>
 <body>
 <div id="app">
@@ -186,13 +189,7 @@
           <label><input type="checkbox" id="set-captions"> Captions for audio cues</label>
         </fieldset>
         <fieldset>
-          <legend>Graphics</legend>
-          <label>Quality
-            <select id="set-quality">
-              <option value="auto">Auto</option><option value="low">Low</option>
-              <option value="medium">Medium</option><option value="high">High</option>
-            </select>
-          </label>
+          <legend>Display</legend>
           <label><input type="checkbox" id="set-reduced"> Reduced motion</label>
           <label><input type="checkbox" id="set-contrast"> High contrast</label>
           <label>Color palette
@@ -211,6 +208,10 @@
           <label><input type="checkbox" id="set-haptics"> Haptics</label>
           <button id="btn-rebind" class="ghost small">Keyboard bindings</button>
           <div id="bind-editor" class="hidden"></div>
+        </fieldset>
+        <!-- quality preset, render scale, per-effect overrides: built by src/gfx-ui.js -->
+        <fieldset id="gfx-section" class="gfx-section">
+          <legend>Graphics</legend>
         </fieldset>
       </div>
       <div class="row">

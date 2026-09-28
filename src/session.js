@@ -5,6 +5,7 @@
 
 import * as Rules from './rules.js';
 import { hashString } from './rng.js';
+import { migrateQuality } from './gfx.js';
 
 export const BUILD_VERSION = '1.0.0';
 const SAVE_KEY = 'gravity-hollow:save:v1';
@@ -45,7 +46,7 @@ export function persistSave(save) { saveJson(SAVE_KEY, save); }
 
 export const DEFAULT_SETTINGS = {
   music: 0.7, effects: 0.9, ambience: 0.5, voice: 0.8, muted: false,
-  quality: 'auto',          // auto | low | medium | high
+  graphics: {},             // gfx.js settings: { preset: 'auto'|low|balanced|high|ultra, render_scale, adaptive, show_fps, <category> }
   reducedMotion: false, highContrast: false, largeText: false,
   palette: 'default',       // default | deuteranopia | protanopia | tritanopia
   leftHanded: false, holdBoost: true, timingAssist: false, haptics: true,
@@ -54,7 +55,12 @@ export const DEFAULT_SETTINGS = {
 };
 export function loadSettings() {
   const s = loadJson(SETTINGS_KEY, null);
-  return s ? { ...DEFAULT_SETTINGS, ...s, bindings: { ...DEFAULT_SETTINGS.bindings, ...(s.bindings ?? {}) } } : { ...DEFAULT_SETTINGS };
+  if (!s) return { ...DEFAULT_SETTINGS, graphics: {} };
+  // pre-Graphics-panel saves stored a single `quality` tier
+  const graphics = s.graphics && typeof s.graphics === 'object' ? { ...s.graphics } : migrateQuality(s.quality);
+  const out = { ...DEFAULT_SETTINGS, ...s, graphics, bindings: { ...DEFAULT_SETTINGS.bindings, ...(s.bindings ?? {}) } };
+  delete out.quality;
+  return out;
 }
 export function persistSettings(settings) { saveJson(SETTINGS_KEY, settings); }
 

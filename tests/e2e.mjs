@@ -72,7 +72,7 @@ try {
     const errors = [];
     page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
     page.on('console', (m) => {
-      if (m.type() === 'error' && !browserNoise.test(m.text())) errors.push(`console: ${m.text()}`);
+      if ((m.type() === 'error' || m.type() === 'warning') && !browserNoise.test(m.text())) errors.push(`console ${m.type()}: ${m.text()}`);
     });
 
     const step = async (name, fn) => {
@@ -113,6 +113,55 @@ try {
         await page.screenshot({ path: SHOT('settings', pass.name) });
         await page.click('#btn-settings-close');
         await hidden('#screen-settings');
+        await visible('#screen-title');
+      });
+
+      await step('graphics: presets, override, persistence across reload', async () => {
+        const attr = () => page.evaluate(() => ({
+          body: document.body.dataset.gfxPreset, canvas: document.getElementById('game-canvas').dataset.gfxPreset,
+          post: document.body.dataset.gfxPost,
+        }));
+        await page.click('#btn-settings');
+        await visible('#screen-settings');
+        // Auto on a software renderer resolves to Low: no post chain
+        let a = await attr();
+        if (a.body !== 'low' || a.canvas !== 'low' || a.post !== 'off') throw new Error(`auto should resolve to low: ${JSON.stringify(a)}`);
+        const autoLabel = await page.locator('#set-quality option[value="auto"]').textContent();
+        if (!/Low/.test(autoLabel)) throw new Error(`auto label lacks detected tier: "${autoLabel}"`);
+        await page.locator('#gfx-section').scrollIntoViewIfNeeded();
+        await page.selectOption('#set-quality', 'ultra');
+        await page.waitForTimeout(1500); // render a few Ultra frames (console must stay clean)
+        a = await attr();
+        if (a.body !== 'ultra' || a.post !== 'on') throw new Error(`ultra not applied: ${JSON.stringify(a)}`);
+        await page.selectOption('#set-quality', 'high');
+        a = await attr();
+        if (a.body !== 'high') throw new Error(`high not applied: ${JSON.stringify(a)}`);
+        const fromPreset = await page.locator('#gfx-shadows option[value="preset"]').textContent();
+        if (!/Medium/.test(fromPreset)) throw new Error(`"From preset" label not updated: "${fromPreset}"`);
+        await page.selectOption('#gfx-bloom', 'off');
+        await page.waitForTimeout(1200);
+        const summary = await page.textContent('#gfx-summary');
+        if (/bloom/.test(summary) || !/2048² shadows/.test(summary) || !/\d+×\d+ px/.test(summary)) throw new Error(`summary wrong: "${summary}"`);
+        await page.check('#gfx-fps');
+        await visible('#fps-meter:not([hidden])');
+        await page.screenshot({ path: SHOT('graphics', pass.name) });
+        // survives reload
+        await page.reload({ waitUntil: 'load' });
+        await visible('#screen-title');
+        a = await attr();
+        if (a.body !== 'high') throw new Error(`preset lost on reload: ${JSON.stringify(a)}`);
+        await page.click('#btn-settings');
+        await visible('#screen-settings');
+        if (await page.inputValue('#gfx-bloom') !== 'off') throw new Error('bloom override lost on reload');
+        if (await page.inputValue('#set-quality') !== 'high') throw new Error('quality select lost on reload');
+        // back to Auto: clears overrides, keeps the rest of the run fast (Low)
+        await page.locator('#gfx-section').scrollIntoViewIfNeeded();
+        await page.uncheck('#gfx-fps');
+        await page.selectOption('#set-quality', 'auto');
+        a = await attr();
+        if (a.body !== 'low') throw new Error(`auto not restored: ${JSON.stringify(a)}`);
+        if (await page.inputValue('#gfx-bloom') !== 'preset') throw new Error('preset did not clear overrides');
+        await page.click('#btn-settings-close');
         await visible('#screen-title');
       });
 

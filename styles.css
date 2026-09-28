@@ -158,6 +158,26 @@ select, input[type="text"] { font: inherit; background: #14211a; color: var(--te
   border-radius: 8px; padding: 0.35rem 0.5rem; min-height: 36px; }
 .bind-row { display: flex; justify-content: space-between; gap: 0.5rem; margin: 0.2rem 0; }
 
+/* Graphics section (src/gfx-ui.js): spans the settings grid, its own 1–2 column grid */
+.gfx-section { grid-column: 1 / -1; min-width: 0; }
+.gfx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 0.45rem 1.2rem; }
+.gfx-grid label { min-width: 0; flex-wrap: wrap; row-gap: 0.25rem; }
+.gfx-grid label > span:first-child { flex: 1 1 8em; min-width: 0; }
+.gfx-grid select { max-width: 100%; flex: 0 1 auto; margin-left: auto; }
+.gfx-grid .gfx-wide { grid-column: 1 / -1; }
+.gfx-check { justify-content: flex-start; }
+.gfx-check input { width: 20px; height: 20px; margin: 0; flex: none; }
+.gfx-range { margin-left: auto; display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; flex: none; }
+.gfx-range output { min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.gfx-summary { margin: 0.3rem 0 0; overflow-wrap: anywhere; }
+.gfx-note { margin: 0; color: var(--danger); }
+
+/* frame-rate readout: bottom-left, never over HUD controls or the tray */
+#fps-meter { position: absolute; left: calc(8px + var(--safe-left)); bottom: calc(84px + var(--safe-bottom)); z-index: 9;
+  pointer-events: none; font: 600 0.72rem/1 ui-monospace, monospace; color: var(--accent);
+  background: rgba(0,0,0,0.55); border-radius: 6px; padding: 3px 6px; font-variant-numeric: tabular-nums; }
+#fps-meter[hidden] { display: none; }
+
 /* achievements */
 .achievements { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .achievements li { background: #14211a; border-radius: 8px; padding: 0.5rem 0.8rem; border: 1px solid var(--panel-border); }
@@ -206,6 +226,7 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
   #action-tray { right: calc(10px + var(--safe-right)); left: auto; transform: none; flex-direction: column; }
   .tray-btn { width: 48px; height: 48px; font-size: 1rem; margin: 4px 0; }
   .panel { max-height: 94vh; }
+  #fps-meter { bottom: calc(8px + var(--safe-bottom)); }
 }
 
 /* reduced motion: no swoops, shake, parallax, or rapid pulses */

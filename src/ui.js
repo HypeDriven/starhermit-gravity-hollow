@@ -291,7 +291,7 @@ export class UI {
     const map = [
       ['set-music', 'music'], ['set-effects', 'effects'], ['set-ambience', 'ambience'], ['set-voice', 'voice'],
       ['set-muted', 'muted', 'checked'], ['set-captions', 'captions', 'checked'],
-      ['set-quality', 'quality'], ['set-reduced', 'reducedMotion', 'checked'],
+      ['set-reduced', 'reducedMotion', 'checked'],
       ['set-contrast', 'highContrast', 'checked'], ['set-palette', 'palette'],
       ['set-large-text', 'largeText', 'checked'], ['set-left', 'leftHanded', 'checked'],
       ['set-hold', 'holdBoost', 'checked'], ['set-timing', 'timingAssist', 'checked'],

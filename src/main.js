@@ -10,6 +10,7 @@ import { journeyAll, challenges, practiceStage, tutorials, dailyStage, validateA
 import * as Rules from './rules.js';
 import { mulberry32 } from './rng.js';
 import { connectPlatform } from './platform.js';
+import { bindGraphicsPanel } from './gfx-ui.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -200,6 +201,10 @@ class App {
     $('btn-replay-tutorial').addEventListener('click', () => { this.startLearn(0); });
 
     this.ui.bindSettings(this.settings, () => this.applySettings(true));
+    bindGraphicsPanel($('gfx-section'), {
+      settings: this.settings, renderer: this.renderer,
+      apply: (persist) => this.applySettings(persist),
+    });
 
     // HUD & pause
     $('btn-pause').addEventListener('click', () => this.pauseMatch());
@@ -238,9 +243,9 @@ class App {
     document.body.classList.toggle('left-handed', s.leftHanded);
     this.audio.applySettings();
     if (this.renderer) {
-      const tier = s.quality === 'auto' ? autoTier() : s.quality;
-      if (tier !== this.renderer.quality) this.renderer.setQuality(tier);
       this.renderer.setReducedMotion(s.reducedMotion || matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const gfxKey = JSON.stringify(s.graphics);
+      if (gfxKey !== this._gfxKey) { this._gfxKey = gfxKey; this.renderer.setGraphics(s.graphics); }
     }
     if (persist) { persistSettings(s); this.ui.toast('Settings saved'); }
   }
@@ -807,13 +812,6 @@ class TutorialRun {
       this.advance();
     }
   }
-}
-
-function autoTier() {
-  const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent) || navigator.maxTouchPoints > 2;
-  const dpr = window.devicePixelRatio || 1;
-  if (mobile) return 'low';
-  return dpr > 1.5 ? 'high' : 'medium';
 }
 
 // boot
