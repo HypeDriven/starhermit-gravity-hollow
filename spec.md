@@ -268,3 +268,7 @@ QA bar as checkable statements: (1) a new player sees instructions within the fi
 - Platform realtime rooms for Hosted Play (host-routed: rooms API lobby/matchmaking + `/ws/v1/realtime` transport carrying the existing move/snapshot messages); until then Hosted Play stays an honest local lobby with AI seats.
 - Score submission to the platform leaderboard (read-only board today; solo scores stay client-simulated and locally recorded).
 - Marking a defective daily as excluded from ranking (the flag is honoured but never set).
+
+## Browser interference
+
+`browser-guard.js` (loaded from `index.html`) suppresses browser UI that gets in the way of play: the right-click context menu, the iOS long-press callout, copy / cut / paste, and page text selection. Text fields (inputs, textareas, selects, contenteditable) keep normal selection, context menu and clipboard behaviour.
