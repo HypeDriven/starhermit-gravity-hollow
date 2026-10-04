@@ -9,9 +9,9 @@
  *
  * Self-contained: embeds a minimal static server on an ephemeral port
  * (server.js is the StarHermit authoritative host and is NOT used here).
- * A stub /api/v1/time endpoint is served so boot clock-sync succeeds
- * offline; Hosted Play (real seats over /ws) requires server.js and is
- * out of scope — the game offers full local solo play without it.
+ * StarHermit /api routes are mocked for a final signed-in pass; the solo
+ * passes must make no /api request. Hosted Play (real seats over /ws)
+ * requires server.js and is out of scope.
  *
  * Run: npm run test:e2e
  */
@@ -34,14 +34,23 @@ const MIME = {
 const browserNoise = /GL Driver Message|GPU stall due to ReadPixels|Automatic fallback to software WebGL|EnableWebGLDeveloperExtensions/i;
 const SHOT = (stage, pass) => `/tmp/gravity-hollow-e2e-${stage}-${pass}.png`;
 
+const apiLog = [];
+function platformMock(req, res, p) {
+  apiLog.push(`${req.method} ${p}`);
+  const json = (b, st = 200) => { res.writeHead(st, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
+  if (p.endsWith('/profile')) return json({ username: 'raw', nickname: 'Event Horizon' });
+  if (p.endsWith('/games/hollow-test/settings') && req.method === 'GET') return json({ settings: { music: 0.35 } });
+  if (p.endsWith('/games/hollow-test/settings')) return json({ settings: {} });
+  if (p.endsWith('/games/hollow-test/controls')) return json(req.method === 'GET' ? { actions: [{ action: 'hint', codes: ['KeyG'] }] } : {});
+  if (p.endsWith('/cloud-saves/game:hollow-test/info')) return json({ exists: false });
+  if (p.endsWith('/cloud-saves/game:hollow-test')) return json({});
+  return json({ error: 'not found' }, 404);
+}
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
-    if (url.pathname === '/api/v1/time') {
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ epochMs: Date.now() }));
-      return;
-    }
+    if (url.pathname.startsWith('/api/')) return platformMock(req, res, decodeURIComponent(url.pathname));
     const path = normalize(join(ROOT, url.pathname === '/' ? 'index.html' : url.pathname));
     if (!path.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
     const body = await readFile(path);
@@ -262,6 +271,53 @@ try {
       failures.push(`[${pass.name}] ${e.message}`);
       try { await page.screenshot({ path: SHOT('failure', pass.name) }); } catch {}
       if (errors.length) console.log(`page errors so far [${pass.name}]:\n${errors.join('\n')}`);
+    } finally {
+      await context.close();
+    }
+  }
+  if (apiLog.length) failures.push(`solo passes made platform calls: ${apiLog.join(', ')}`);
+
+  // Signed-in launch: nickname, synced music volume, platform key binding in
+  // Settings, invite link from the visible title button, cloud slot seeded.
+  {
+    const BASE = `http://127.0.0.1:${server.address().port}`;
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !browserNoise.test(m.text())) errors.push(`console ${m.type()}: ${m.text()}`); });
+    await page.addInitScript(() => {
+      window.__copied = [];
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText: async (t) => { window.__copied.push(t); } } });
+    });
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const token = 'h.' + b64u({ sub: 'void-12345678', game_scope: 'hollow-test', exp: Math.floor(Date.now() / 1000) + 3600 }) + '.s';
+    try {
+      await page.goto(`${BASE}/#game_token=${token}`, { waitUntil: 'load' });
+      await page.waitForSelector('#screen-title:not(.hidden)', { timeout: 20000 });
+      if (new URL(page.url()).hash) throw new Error('launch token left in the URL');
+      if ((await page.textContent('#profile-sub')).trim() !== 'Event Horizon') throw new Error('nickname not shown');
+      if (await page.locator('#btn-signin').isVisible()) throw new Error('sign-in shown while signed in');
+      const music = await page.evaluate(() => JSON.parse(localStorage.getItem('gravity-hollow:settings:v1')).data.music);
+      if (music !== 0.35) throw new Error('platform settings not applied: ' + music);
+      await page.click('#btn-invite');
+      await page.waitForFunction(() => window.__copied.length === 1);
+      const link = await page.evaluate(() => window.__copied[0]);
+      if (!/\/game-invite\/void-12345678\/hollow-test$/.test(link)) throw new Error('bad invite link ' + link);
+      await page.screenshot({ path: SHOT('title', 'signed-in') });
+      await page.click('#btn-settings');
+      await page.click('#btn-rebind');
+      if (!/hint\s*G\s*rebind/.test(await page.textContent("#bind-editor"))) throw new Error('settings do not show the platform binding');
+      await page.locator('#bind-editor .bind-row', { hasText: 'camera' }).locator('button').click();
+      await page.keyboard.press('KeyV');
+      for (let i = 0; i < 30 && !apiLog.includes('PUT /api/v1/games/hollow-test/controls'); i++) await page.waitForTimeout(100);
+      if (!apiLog.includes('PUT /api/v1/games/hollow-test/controls')) throw new Error('rebind not saved to the platform: ' + apiLog.join(', '));
+      for (let i = 0; i < 40 && !apiLog.includes('PUT /api/v1/me/cloud-saves/game:hollow-test'); i++) await page.waitForTimeout(100);
+      if (!apiLog.includes('PUT /api/v1/me/cloud-saves/game:hollow-test')) throw new Error('cloud slot not seeded');
+      if (errors.length) throw new Error(`page errors:\n${errors.join('\n')}`);
+      console.log('ok - [signed-in] nickname, synced settings, platform binding + rebind, invite link, cloud seed');
+    } catch (e) {
+      failures.push(`[signed-in] ${e.message}`);
     } finally {
       await context.close();
     }

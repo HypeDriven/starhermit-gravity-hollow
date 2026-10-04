@@ -9,7 +9,8 @@ import { AudioEngine } from './audio.js';
 import { journeyAll, challenges, practiceStage, tutorials, dailyStage, validateAll } from './content.js';
 import * as Rules from './rules.js';
 import { mulberry32 } from './rng.js';
-import { connectPlatform } from './platform.js';
+import { connectPlatform, applyRemoteSettings, canSignIn, signIn } from './platform.js';
+import { platformStrings } from './platform-i18n.js';
 import { bindGraphicsPanel } from './gfx-ui.js';
 
 const $ = (id) => document.getElementById(id);
@@ -30,7 +31,6 @@ class App {
     this.lastSent = { dx: 0, dy: 0, boost: false };
     this.gamepad = { active: false };
     this.tutorial = null;
-    this.serverOffset = 0; // server-time offset for daily boundaries
     this.platform = null;  // StarHermit platform layer (null = offline play)
     this.board = undefined;// cached read-only leaderboard (null = none/offline)
     this.rafHandle = null;
@@ -55,9 +55,6 @@ class App {
     this.platform = connectPlatform();
     if (this.platform) await this.signIn();
 
-    $('boot-status').textContent = 'Syncing clock…';
-    $('boot-progress').value = 50;
-    await this.syncTime();
 
     $('boot-status').textContent = 'Raising the plaza…';
     $('boot-progress').value = 75;
@@ -151,30 +148,46 @@ class App {
       this.save.profile.guest = false;
     }
     if (remote?.save || nick) persistSave(this.save); // refresh the local cache
-    this.ui.setSyncStatus('synced');
-    this.platform.startRefresh();
+    if (!remote?.save) this.platform.scheduleSave(this.save); // empty slot: seed it
+    else this.ui.setSyncStatus('synced');
+    // Preferences and key bindings: platform values win over local defaults.
+    const [prefs, bindings] = await Promise.all([
+      this.platform.loadSettings(),
+      this.platform.loadBindings(this.settings.bindings),
+    ]);
+    const changed = applyRemoteSettings(this.settings, prefs);
+    const rebound = JSON.stringify(bindings) !== JSON.stringify(this.settings.bindings);
+    if (rebound) this.settings.bindings = bindings;
+    if (changed || rebound) persistSettings(this.settings);
+    this.platform.baseline(this.settings);
+    // Renewal refused: local play continues; the title re-offers sign-in.
+    this.platform.onSignedOut = () => {
+      this.ui.toast(platformStrings().signedOut);
+      this.platform.destroy();
+      this.platform = null;
+      this.ui.setSyncStatus('local');
+      this.updateAccountButtons();
+    };
   }
 
-  async syncTime() {
-    // Synchronize with the platform clock (same-origin /api/v1/time, Bearer
-    // when hosted), using round-trip adjustment; fall back to local time when
-    // offline.
-    try {
-      const t0 = Date.now();
-      const res = this.platform
-        ? await this.platform.api('/api/v1/time', { cache: 'no-store' })
-        : await fetch('/api/v1/time', { cache: 'no-store' });
-      if (!res.ok) throw new Error('no time');
-      const t1 = Date.now();
-      const body = await res.json();
-      // Hosts expose the epoch under different keys (`epochMs`, `serverTime`, `now`).
-      const epoch = Number(body.epochMs ?? body.serverTime ?? body.now);
-      if (!Number.isFinite(epoch)) throw new Error('no time');
-      const serverMs = epoch + (t1 - t0) / 2;
-      this.serverOffset = serverMs - t1;
-    } catch { this.serverOffset = 0; }
+  // Sign-in (platform host without a token) / Invite a friend (signed in).
+  updateAccountButtons() {
+    const t = platformStrings();
+    const signInBtn = $('btn-signin'), invite = $('btn-invite');
+    signInBtn.textContent = t.signIn; invite.textContent = t.invite;
+    signInBtn.classList.toggle('hidden', !canSignIn());
+    invite.classList.toggle('hidden', !this.platform);
   }
-  now() { return Date.now() + this.serverOffset; }
+
+  async copyInvite() {
+    const link = this.platform?.inviteLink();
+    if (!link) return;
+    const t = platformStrings();
+    try { await navigator.clipboard.writeText(link); this.ui.toast(t.inviteCopied); }
+    catch { this.ui.toast(t.inviteFailed); }
+  }
+
+  now() { return Date.now(); }
   utcDateKey() { return new Date(this.now()).toISOString().slice(0, 10); }
 
   refreshDailyLine() {
@@ -196,6 +209,9 @@ class App {
     $('btn-profile').addEventListener('click', () => { this.audio.event('ui_confirm'); this.ui.buildProfile(this.save); this.ui.show('profile'); });
     $('btn-help').addEventListener('click', () => { this.audio.event('ui_confirm'); this.ui.buildHelp(this.settings); this.ui.overlay('help'); });
     $('btn-settings').addEventListener('click', () => { this.audio.event('ui_confirm'); this.ui.overlay('settings'); });
+    $('btn-signin').addEventListener('click', () => signIn());
+    $('btn-invite').addEventListener('click', () => { this.audio.event('ui_confirm'); this.copyInvite(); });
+    this.updateAccountButtons();
     $('btn-help-close').addEventListener('click', () => this.ui.back());
     $('btn-settings-close').addEventListener('click', () => this.ui.back());
     $('btn-replay-tutorial').addEventListener('click', () => { this.startLearn(0); });
@@ -247,7 +263,7 @@ class App {
       const gfxKey = JSON.stringify(s.graphics);
       if (gfxKey !== this._gfxKey) { this._gfxKey = gfxKey; this.renderer.setGraphics(s.graphics); }
     }
-    if (persist) { persistSettings(s); this.ui.toast('Settings saved'); }
+    if (persist) { persistSettings(s); this.platform?.sync(s); this.ui.toast('Settings saved'); }
   }
 
   persistAll() {

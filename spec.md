@@ -188,7 +188,7 @@ This table is the source of `sfx/manifest.txt` (`file | event id | description |
 
 ## 10. Localization
 
-The shipped build is **English only**: every string is inline in `index.html`, `src/ui.js`, `src/main.js` and `src/content.js` (lesson text, mode cards, help cards, goal text, results headlines). The one exception is the Settings → Graphics section, whose strings (`gfx-ui.js`) exist in en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR and it-IT and are picked from `navigator.languages`; there is no language selector. Layout already tolerates ~30 % expansion (panels scroll, buttons wrap, `.title-row` buttons flex with a 96 px minimum, HUD rails cap at 30–38 vw). The nine target locales (en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR, it-IT) are listed under *Design intent not yet implemented*.
+The shipped build is **English only**: every string is inline in `index.html`, `src/ui.js`, `src/main.js` and `src/content.js` (lesson text, mode cards, help cards, goal text, results headlines). The exceptions are the StarHermit account strings (`platform-i18n.js`) and the Settings → Graphics section, whose strings (`gfx-ui.js`) exist in en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR and it-IT and are picked from `navigator.languages`; there is no language selector. Layout already tolerates ~30 % expansion (panels scroll, buttons wrap, `.title-row` buttons flex with a 96 px minimum, HUD rails cap at 30–38 vw). The nine target locales (en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR, it-IT) are listed under *Design intent not yet implemented*.
 
 ## 11. Accessibility
 
@@ -202,20 +202,25 @@ The shipped build is **English only**: every string is inline in `index.html`, `
 
 ## 12. StarHermit integration
 
+All platform traffic goes through the shared client `starhermit-sdk.js` (loaded by `index.html` before the modules); `src/platform.js` wraps it and `connectPlatform()` calls `StarHermit.init()` at boot. Without a launch token the game makes no network request.
+
 | Platform feature | Status in this build |
 |---|---|
-| Distribution manifest (`starhermit.txt`: `name`, `launch`, `owner`, `server`, `version`, `cover`) | used |
-| Launch token (`#game_token=` fragment, read once + stripped; query fallbacks local-dev only) | used when hosted — `sub`/`game_scope` decoded, `Authorization: Bearer` on every REST call, re-mint via `POST /api/v1/games/{slug}/launch-token` every 45 min (`src/platform.js`) |
-| Server time `GET /api/v1/time` (same-origin, round-trip adjusted, accepts `epochMs`/`serverTime`/`now`) | used for the daily boundary and countdown line (`main.js` `syncTime`, Bearer when hosted) |
-| Server script (`server=server.js`) | shipped: static host, `/api/v1/time`, authoritative rooms on `/ws` (join/roster/start/move/leave, token reconnect, AI backfill to 4 seats, 8 seats max, 15 Hz binary frames, 120 msg/10 s rate limit, 64 KB frame bound, refuses `tests/`, `tools/`, `node_modules/`, dotfiles) |
-| Identity / profile | used when hosted — nickname from `GET /api/v1/users/{sub}/profile` shown in the profile slot/results boards; local free-text name remains the offline fallback (`main.js` `signIn`, `ui.js` `buildProfile`) |
-| Cloud saves | used when hosted — save document mirrored to `GET/PUT /api/v1/me/cloud-saves/{slug}` (stored zip + base64), remote-preferred load, 2 s debounce + `pagehide` flush, sync status on title/profile; localStorage stays the offline cache |
-| Leaderboards | read-only when hosted — `GET /api/v1/games/{slug}` → `leaderboardId`, then `GET /api/v1/leaderboards/{id}/entries` (nicknames resolved via the profile helper) on the Daily setup card; solo scores are never submitted, daily/challenge records stay local |
-| Platform achievements | not used — the 7 achievements are local and part of the cloud-saved document (server.js is a Node host, not a Jint game script); no unlock calls |
-| Presence, friends, invites, chat, voice | not used |
-| Realtime rooms from the client | not used — Hosted Play is an honest local lobby with AI seats (clearly labelled); no `WebSocket` is opened by shipped client code |
+| Distribution manifest (`starhermit.txt`: `name`, `launch`, `owner`, `server`, `version`, `cover`, one `control.<action>` line per keyboard action) | used |
+| Launch token | used when hosted — the SDK reads `#game_token=<jwt>[&session_id=]` (library launch) or `#access_token=<jwt>` (sign-in return), strips it, takes `sub` / `game_scope`, sends Bearer on every same-origin call and renews the token. If renewal is refused the game toasts that progress keeps saving on this device, drops to local play and re-offers sign-in |
+| Sign-in | **Sign in with StarHermit** on the title, shown only on `<slug>.starhermit.com` without a token |
+| Identity / profile | used when hosted — profile nickname (`Player <id>` fallback, never `/api/v1/me`) as the profile name on the title, profile and results boards; the local free-text name is the offline fallback (`main.js` `signIn`, `ui.js` `buildProfile`) |
+| Invite link | **Invite a friend** on the title when signed in copies the SDK share link with a toast |
+| Cloud saves | used when hosted — the save document mirrors to slot `game:<slug>` (`/api/v1/me/cloud-saves/game:<slug>`): slot info checked at boot, remote-preferred load, an empty slot is seeded from local, ~2 s debounce + `pagehide`/hidden flush, sync status on title/profile; localStorage stays the offline cache |
+| Settings KV | used when hosted — volumes, mute, graphics, reduced motion, high contrast, larger text, palette, left-handed, hold-to-boost, timing assist, haptics, camera sway and captions are patched when Settings change; platform values win at boot |
+| Controls | keydown is routed by `KeyboardEvent.code` through `settings.bindings`, which signed in come from `StarHermit.loadBindings` (platform rebinding wins); Settings → *Keyboard bindings* shows them and a rebind is saved with `PUT /controls` |
+| Leaderboards | read-only when hosted — `GET /api/v1/games/{slug}` → `leaderboardId`, then the board's entries (nicknames resolved) on the Daily setup card; solo scores are never submitted, daily/challenge records stay local |
+| Server time | not used — daily boundaries use the local UTC clock |
+| Server script (`server=server.js`) | shipped as a Node host (static files, `/api/v1/time`, local rooms on `/ws`), not a Jint game script |
+| Platform achievements | not used — the 7 achievements are local and part of the cloud-saved document; no script-owned unlock path |
+| Sessions, matchmaking, platform invites, chat, voice, realtime rooms, replays | not used — Hosted Play is an honest local lobby with AI seats; no `WebSocket` is opened by shipped client code |
 
-Conventions followed from the platform wiki: same-origin `/api` and `/ws` paths, structured `{"error":"..."}` responses, no credentials in local storage, results computed by the authoritative script for hosted rooms, launch token read once from the fragment and stripped, `Bearer` auth on every REST call, nickname (never username) from the profile route, cloud slot keyed by `game_scope`.
+Account-surface strings (sign-in, invite, toasts, sign-out notice) are localized in all nine locales (`src/platform-i18n.js`). Conventions followed from the platform wiki: same-origin `/api` paths, no credentials in local storage, launch token read once and stripped, nickname (never username) from the profile route, cloud slot `game:<slug>`.
 
 ## 13. Technical architecture
 
@@ -226,7 +231,7 @@ Conventions followed from the platform wiki: same-origin `/api` and `/ws` paths,
 - **Content validation.** `validateAll` runs at boot (warnings only) and in tests: identity, duration ≤ 900 s, arena 20–60, known theme, gem-goal reachability, obstacle axis blocking, ≤ 7 rivals.
 - **Renderer budgets.** Props are 5 `InstancedMesh` draws (capacity `propTarget + 40`); one `Points` particle pool; per-void 3 meshes (+ contact shadow and swirl with detail); one `Points` draw for atmosphere motes; scene disposal on stage change and detail/particle change; context loss/restore rebuilds. `?smoke` logs `SMOKE_OK` with draw calls and triangles at tick 300 and `SMOKE_END` at the end.
 - **Server.** `startMatch` re-keys clients by void id; `cleanup` hands abandoned voids to AI and records a reconnect token; a started room survives its last human until the match ends.
-- **How the e2e drives the UI.** `tests/e2e.mjs` serves the folder on `PORT` (or an ephemeral port), stubs `/api/v1/time`, and in headless Chrome clicks real buttons: settings, Graphics (Auto → Low on the software GPU, Ultra, High, a bloom override, frame-rate toggle, reload persistence, back to Auto clearing overrides), help, journey grid, Practice relaxed (keyboard steering with Shift boost, hint, undo, pause/resume/leave) and the full 45 s Sprint Hollow match to the results dialog, at 1280×800 and 390×844 with touch.
+- **How the e2e drives the UI.** `tests/e2e.mjs` serves the folder on `PORT` (or an ephemeral port) with mocked StarHermit `/api` routes, and in headless Chrome clicks real buttons: settings, Graphics (Auto → Low on the software GPU, Ultra, High, a bloom override, frame-rate toggle, reload persistence, back to Auto clearing overrides), help, journey grid, Practice relaxed (keyboard steering with Shift boost, hint, undo, pause/resume/leave) and the full 45 s Sprint Hollow match to the results dialog, at 1280×800 and 390×844 with touch; those passes must make no `/api` request. A signed-in pass (390×844, `#game_token=`) checks the token left the URL, the nickname, the synced music volume, sign-in hidden, Invite a friend copying the share link, Settings showing a platform key binding and saving a rebind (`PUT /controls`), and the `game:<slug>` save PUT. `npm test` also runs `tests/platform.test.mjs` (adapter on the real SDK with a stubbed fetch: token read, nickname, `game:<slug>` round-trip, settings/bindings apply and sync, sign-out, zero requests standalone).
 
 ## 14. Testing and acceptance criteria
 
