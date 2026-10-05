@@ -28,6 +28,11 @@ body.high-contrast { --panel: rgba(0,0,0,0.96); --text: #ffffff; --dim: #d0d0d0;
 #app { position: fixed; inset: 0; }
 #game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; display: block; }
 #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+
+/* Large screens: every DOM layer over the (unzoomed, full-viewport) canvas zooms
+   by --ui-scale (ui-scale.js; exactly 1 up to 1600x1000); vw/vh lengths inside
+   are divided by it, and void labels divide their JS positions by it. */
+.screen, #hud, #tutorial-banner, #action-tray, #countdown, #toasts, #captions, #fps-meter, .void-label { zoom: var(--ui-scale, 1); }
 .void-label { position: absolute; transform: translate(-50%, -100%); font-size: 0.75rem;
   background: rgba(0,0,0,0.55); padding: 1px 7px; border-radius: 8px; white-space: nowrap; }
 
@@ -39,13 +44,13 @@ body.high-contrast { --panel: rgba(0,0,0,0.96); --text: #ffffff; --dim: #d0d0d0;
 .hidden { display: none !important; }
 
 .panel { background: var(--panel); border: 1px solid var(--panel-border); border-radius: var(--radius);
-  padding: 1.4rem 1.6rem; max-width: min(92vw, 560px); max-height: 88vh; overflow-y: auto;
+  padding: 1.4rem 1.6rem; max-width: min(calc(92vw / var(--ui-scale, 1)), 560px); max-height: calc(88vh / var(--ui-scale, 1)); overflow-y: auto;
   box-shadow: 0 18px 60px rgba(0,0,0,0.5); }
-.panel.wide { max-width: min(94vw, 780px); }
+.panel.wide { max-width: min(calc(94vw / var(--ui-scale, 1)), 780px); }
 .panel.center { text-align: center; }
 .panel p { max-width: 70ch; }
 
-.logo { font-size: clamp(2rem, 6vw, 3.2rem); margin: 0 0 0.2em; letter-spacing: 0.02em;
+.logo { font-size: clamp(2rem, calc(6vw / var(--ui-scale, 1)), 3.2rem); margin: 0 0 0.2em; letter-spacing: 0.02em;
   background: linear-gradient(120deg, var(--accent), var(--accent-2));
   -webkit-background-clip: text; background-clip: text; color: transparent; }
 .tagline { color: var(--dim); margin-top: 0; }
@@ -87,6 +92,8 @@ ol.board { margin: 0.4rem 0; padding-left: 1.4em; }
 ol.board li.me { color: var(--accent); font-weight: 600; }
 
 /* cards */
+/* explicit width: a shrink-to-fit panel would collapse the auto-fill grid to one column */
+#screen-modes .panel { width: 100%; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.8rem; margin: 1rem 0; }
 .mode-card { text-align: left; padding: 1rem; border-radius: var(--radius); background: #14211a;
   border: 1px solid var(--panel-border); display: flex; flex-direction: column; gap: 0.3rem; }
@@ -108,12 +115,12 @@ ol.board li.me { color: var(--accent); font-weight: 600; }
   right: calc(8px + var(--safe-right)); display: flex; justify-content: space-between; gap: 0.6rem;
   pointer-events: none; z-index: 10; }
 #hud > * { pointer-events: auto; }
-.hud-rail { display: flex; flex-direction: column; gap: 0.5rem; max-width: 30vw; }
+.hud-rail { display: flex; flex-direction: column; gap: 0.5rem; max-width: calc(30vw / var(--ui-scale, 1)); }
 #hud-center { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
 .hud-card { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
   padding: 0.4rem 0.8rem; font-size: 0.9rem; }
 .hud-card.big { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-#hud-ranks { font-size: 0.78rem; max-width: 44vw; }
+#hud-ranks { font-size: 0.78rem; max-width: calc(44vw / var(--ui-scale, 1)); }
 #hud-score { font-variant-numeric: tabular-nums; }
 .hud-btn { font-size: 1.1rem; }
 .goal-done { color: var(--accent); }
@@ -130,13 +137,13 @@ body.left-handed #action-tray { left: calc(12px + var(--safe-left)); transform: 
 
 /* countdown */
 #countdown { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  font-size: clamp(4rem, 18vw, 9rem); font-weight: 800; color: var(--accent);
+  font-size: clamp(4rem, calc(18vw / var(--ui-scale, 1)), 9rem); font-weight: 800; color: var(--accent);
   text-shadow: 0 6px 40px rgba(0,0,0,0.7); z-index: 15; pointer-events: none; }
 
 /* tutorial banner */
-#tutorial-banner { position: absolute; top: calc(70px + var(--safe-top)); left: 50%; transform: translateX(-50%);
+#tutorial-banner { position: absolute; top: var(--banner-top, calc(70px + var(--safe-top))); left: 50%; transform: translateX(-50%);
   background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius);
-  padding: 0.8rem 1.2rem; max-width: min(92vw, 520px); z-index: 12; text-align: center; }
+  padding: 0.8rem 1.2rem; max-width: min(calc(92vw / var(--ui-scale, 1)), 520px); z-index: 12; text-align: center; }
 #tutorial-banner p { margin: 0.2rem 0; }
 
 /* results */
@@ -216,6 +223,7 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
   .hud-card.big { font-size: 1.2rem; }
   .card-grid { grid-template-columns: 1fr 1fr; }
   .journey-grid { grid-template-columns: repeat(5, 1fr); }
+  #tutorial-banner { left: calc(12px + var(--safe-left)); right: calc(12px + var(--safe-right)); transform: none; max-width: none; }
 }
 
 /* landscape mobile: narrow status rail, 44px targets with 8px separation */

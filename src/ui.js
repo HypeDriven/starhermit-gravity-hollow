@@ -228,6 +228,23 @@ export class UI {
       (b.propMass + b.gemMass + b.rivalMass) - (a.propMass + a.gemMass + a.rivalMass));
     $('hud-ranks').innerHTML = ranks.map((v, i) =>
       `${i + 1}. ${v.id === 0 ? '<strong>' : ''}${escapeHtml(v.name)} ${v.propMass + v.gemMass + v.rivalMass}${v.id === 0 ? '</strong>' : ''}${v.alive ? '' : ' ✝'}`).join(' · ');
+    this.placeTutorialBanner();
+  }
+
+  /** Keep the lesson banner just below whichever HUD cards sit above it (timer,
+   *  standings, rails) so it never covers them; it is zoomed by --ui-scale, so
+   *  the visual rect is divided back into its own (layout) px. */
+  placeTutorialBanner() {
+    const el = $('tutorial-banner');
+    if (el.classList.contains('hidden') || $('hud').classList.contains('hidden')) return;
+    const b = el.getBoundingClientRect();
+    let bottom = 0;
+    for (const c of $('hud').querySelectorAll('.hud-card, .hud-btn')) {
+      const r = c.getBoundingClientRect();
+      if (r.height && r.right > b.left && r.left < b.right) bottom = Math.max(bottom, r.bottom);
+    }
+    const z = window.UIScale?.value || 1;
+    el.style.setProperty('--banner-top', `${Math.round(bottom / z) + 8}px`);
   }
 
   countdown(text) {
@@ -244,6 +261,7 @@ export class UI {
     $('tutorial-text').textContent = step.text;
     $('tutorial-hint').textContent = step.hint ?? '';
     $('btn-tutorial-skip').onclick = onSkip;
+    this.placeTutorialBanner();
   }
 
   // ---- results --------------------------------------------------------------
@@ -315,7 +333,7 @@ export class UI {
       for (const action of ['up', 'down', 'left', 'right', 'boost', 'pause', 'undo', 'hint', 'camera']) {
         const row = document.createElement('div');
         row.className = 'bind-row';
-        const keys = settings.bindings[action].map(prettyKey).join(' / ');
+        const keys = keyList(settings.bindings[action], ' / ');
         row.innerHTML = `<span>${action}</span><span class="dim">${keys}</span>`;
         const btn = document.createElement('button');
         btn.className = 'ghost small';
@@ -350,15 +368,15 @@ export class UI {
   buildHelp(settings) {
     const b = settings.bindings;
     const cards = [
-      ['Move', `Hold ${b.up.map(prettyKey).join('/')} etc., or drag on the plaza. Your hollow follows.`, 'You can always move while alive and the clock is running.'],
+      ['Move', `Hold ${keyList(b.up)} etc., or drag on the plaza. Your hollow follows.`, 'You can always move while alive and the clock is running.'],
       ['Consume', 'Roll over anything smaller than you — it highlights when edible.', 'Motes first, then chunks, then boulders as you grow.'],
       ['Grow', 'Everything you eat adds mass. Bigger hollow, bigger appetite — but slower.', 'Radius follows the square root of mass.'],
-      ['Boost', `Hold ${b.boost.map(prettyKey).join('/')} or the ⚡ button. Boosting spends mass.`, 'Disabled in some challenges.'],
+      ['Boost', `Hold ${keyList(b.boost)} or the ⚡ button. Boosting spends mass.`, 'Disabled in some challenges.'],
       ['Embers', 'Orange embers burn and shrink you. Give them room.', 'They are never edible.'],
       ['Rivals', 'Outweigh a rival by a quarter and you can swallow them.', 'Eaten rivals respawn — and remember you.'],
       ['Scoring', 'Rank by mass collected. Ties break on objectives, clean play, then speed.', 'Results show every component.'],
-      ['Pause', `${b.pause.map(prettyKey).join('/')} pauses. Solo play also pauses when the tab hides.`, ''],
-      ['Undo', `In Practice, ${b.undo.map(prettyKey).join('/')} steps back to the previous moment.`, 'Not available in ranked modes.'],
+      ['Pause', `${keyList(b.pause)} pauses. Solo play also pauses when the tab hides.`, ''],
+      ['Undo', `In Practice, ${keyList(b.undo)} steps back to the previous moment.`, 'Not available in ranked modes.'],
     ];
     const host = $('help-cards');
     host.innerHTML = '';
@@ -386,6 +404,10 @@ export function goalText(g) {
     case 'survive': return 'Finish with zero deaths';
     default: return g.type;
   }
+}
+/** Distinct key names for a binding list (ShiftLeft + ShiftRight read as one "Shift"). */
+export function keyList(codes, sep = '/') {
+  return [...new Set(codes.map(prettyKey))].join(sep);
 }
 export function prettyKey(code) {
   return code.replace(/^Key/, '').replace(/^Arrow/, '').replace('ShiftLeft', 'Shift').replace('ShiftRight', 'Shift').replace('Space', 'Space');

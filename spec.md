@@ -121,6 +121,10 @@ File map:
 
 **Desktop (≥ 1024 px).** HUD: left rail (stage name, objectives), centre (timer, live standings), right rail (mass/collected, moves/boosts left, ⏸). Panels max 560 px (780 px wide variants), 70ch line length. Tray centred at the bottom.
 
+**Large screens (> 1600×1000).** The shared `ui-scale.js` sets `--ui-scale` (`min(w/1600, h/1000)`, capped at 2.5; exactly 1 at 1600×1000 and below) and every DOM layer over the unzoomed full-viewport canvas — screens/panels, HUD, tray, tutorial banner, countdown, toasts, captions, fps meter and void labels — is CSS-zoomed by it, so the 3840×2160 layout is the ~1778×1000 layout magnified; vw/vh lengths inside are divided by the scale and void-label positions are divided by `UIScale.value`.
+
+**Lesson banner.** Sits 8 px below whichever HUD cards it horizontally overlaps (`ui.placeTutorialBanner`, re-run with each HUD update), so it never covers the timer, standings, rails or ⏸; in portrait it spans the width between the safe-area gutters. The mode-select panel takes its full max width so mode and challenge cards lay out two per row.
+
 **Compact / tablet (< 1024 px).** Rails widen to 38 vw; the live standings strip is hidden.
 
 **Portrait mobile (≤ 700 px).** Timer row first and centred, objective rail below-left, score rail right; panels 96 vw; mode cards two per row; Journey grid five per row; tray in the bottom thumb zone above `safe-area-inset-bottom`; left-handed setting docks it left.

@@ -738,7 +738,8 @@ class App {
       if (!v.alive) { el.style.display = 'none'; return; }
       const p = this.renderer.projectToScreen(v.x, v.y, v.r * 1.6);
       el.style.display = p.visible ? '' : 'none';
-      el.style.left = `${p.x}px`; el.style.top = `${p.y}px`;
+      const z = window.UIScale?.value || 1; // .void-label is zoomed by --ui-scale
+      el.style.left = `${p.x / z}px`; el.style.top = `${p.y / z}px`;
       el.textContent = `${v.id === 0 ? '▶ ' : ''}${v.name} · ${Math.floor(v.mass)}`;
     });
   }
