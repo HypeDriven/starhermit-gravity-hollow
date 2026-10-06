@@ -33,7 +33,10 @@ export class UI {
     this.current = name;
     const panel = name ? $(`screen-${name}`)?.querySelector('.panel') : null;
     const first = panel?.querySelector('button, input, select, [tabindex]');
-    if (first) first.focus();
+    // preventScroll + reset: focusing a button low in a tall panel (results on a
+    // phone) would otherwise open the screen scrolled past its heading
+    if (first) first.focus({ preventScroll: true });
+    if (panel) panel.scrollTop = 0;
   }
   overlay(name) { // settings/help over current screen
     this.under = this.current;
@@ -64,8 +67,16 @@ export class UI {
     el.className = 'toast';
     el.textContent = text;
     $('toasts').appendChild(el);
-    setTimeout(() => el.remove(), ms);
+    this.fitToasts();
+    setTimeout(() => { el.remove(); this.fitToasts(); }, ms);
     this.announce(text);
+  }
+  // While a screen is up the toast stack sits at the top edge and the screens
+  // reserve its height (--toast-h, layout px of the equally zoomed stack), so a
+  // toast never covers a results heading or button.
+  fitToasts() {
+    const h = $('toasts').offsetHeight;
+    document.documentElement.style.setProperty('--toast-h', h ? `${h + 8}px` : '0px');
   }
   announce(text, assertive = false) {
     if (!text) return;

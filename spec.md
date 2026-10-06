@@ -129,7 +129,9 @@ File map:
 
 **Portrait mobile (≤ 700 px).** Timer row first and centred, objective rail below-left, score rail right; panels 96 vw; mode cards two per row; Journey grid five per row; tray in the bottom thumb zone above `safe-area-inset-bottom`; left-handed setting docks it left.
 
-**Landscape mobile (height ≤ 500 px).** HUD becomes a 200 px column on the left; tray becomes a vertical column on the right with 48 px buttons; panels 94 vh; title and results illustrations are hidden below 560 px height.
+**Landscape mobile (height ≤ 500 px).** HUD becomes a 200 px column on the left; tray becomes a vertical column on the right with 48 px buttons; panels 94 vh; title and results illustrations are hidden below 560 px height. The title panel compacts (smaller logo and buttons, empty rows hidden) so it fits a 390 px-tall phone without scrolling.
+
+**Toasts over screens.** In play, toasts stack top-right below the HUD. While any screen is up (results, pause, menus) they move to a centred, wrapping row at the top edge and every screen's top padding reserves their height (`--toast-h`, set by `UI.fitToasts`), so a toast never covers a results heading or button. Opening a screen focuses its first control without scrolling and resets the panel to the top.
 
 **Never cut off.** Play button, timer, ⏸, ⚡, results *Next/Retry/Home*. All screens scroll (`overflow-y: auto`) and pad by `env(safe-area-inset-*)`.
 

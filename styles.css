@@ -196,6 +196,12 @@ select, input[type="text"] { font: inherit; background: #14211a; color: var(--te
   display: flex; flex-direction: column; gap: 0.5rem; z-index: 30; pointer-events: none; }
 .toast { background: var(--panel); border: 1px solid var(--accent); border-radius: 10px;
   padding: 0.5rem 0.9rem; animation: toast-in 0.25s ease; max-width: 260px; }
+/* any screen up (results, pause, menus): toasts move to the top edge and the
+   screen's padding reserves their height (set by UI.fitToasts) */
+:root:has(.screen:not(.hidden)) #toasts { top: calc(8px + var(--safe-top)); left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right)); flex-flow: row wrap; justify-content: center; align-items: flex-start; }
+.screen { padding-top: calc(12px + var(--safe-top) + var(--toast-h, 0px)); transition: padding-top 0.2s ease; }
+.screen > .panel { max-height: min(calc(88vh / var(--ui-scale, 1)), 100%); }
 @keyframes toast-in { from { transform: translateY(-8px); opacity: 0; } }
 #captions { position: absolute; bottom: calc(90px + var(--safe-bottom)); left: 50%; transform: translateX(-50%);
   background: rgba(0,0,0,0.75); border-radius: 8px; padding: 0.25rem 0.8rem; font-size: 0.85rem; z-index: 11; }
@@ -234,6 +240,16 @@ progress { width: 100%; height: 10px; accent-color: var(--accent); }
   #action-tray { right: calc(10px + var(--safe-right)); left: auto; transform: none; flex-direction: column; }
   .tray-btn { width: 48px; height: 48px; font-size: 1rem; margin: 4px 0; }
   .panel { max-height: 94vh; }
+  /* compact title so it fits a ~390px-tall phone without scrolling */
+  .title-panel { padding: 0.8rem 1.2rem; width: min(540px, 100%); }
+  .title-panel .logo { font-size: 2rem; margin: 0; }
+  .title-panel .tagline { margin: 0.1rem 0 0; font-size: 0.9rem; }
+  .title-panel .primary.big { padding: 0.45rem 2rem; margin: 0.5rem 0 0; font-size: 1.15rem; }
+  .title-panel .title-row { margin-top: 0.5rem; }
+  .title-panel .title-row button { padding: 0.35rem 0.8rem; }
+  .title-panel .title-row:has(> button:not(.hidden)) ~ .title-row:has(> button:not(.hidden)) { margin-top: 0.2rem; }
+  .title-panel .title-row:not(:has(> button:not(.hidden))) { display: none; }
+  #sync-status:empty { display: none; }
   #fps-meter { bottom: calc(8px + var(--safe-bottom)); }
 }
 
