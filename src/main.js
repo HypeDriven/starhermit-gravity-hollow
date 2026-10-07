@@ -548,6 +548,26 @@ class App {
       : this.session.stage.kind === 'daily' ? 'Daily result recorded' : '';
     this.ui.showResults(results, progress);
     this.matchFlow = 'results';
+    const kind = this.session.stage.kind;
+    this.postToLeaderboard((kind === 'daily' || kind === 'challenge') && check.ok && !check.skipped
+      ? Math.max(0, results.breakdown.total) : null);
+  }
+
+  // Signed in only: post a ranked round (Daily Hollow, Challenges) to the
+  // `high-score` board and show the player's rank on the results screen.
+  postToLeaderboard(total) {
+    const line = $('results-lb');
+    if (total == null || !this.platform?.userId) { line.hidden = true; return; }
+    const t = platformStrings();
+    line.hidden = false;
+    line.textContent = t.lbPosting;
+    const session = this.session;
+    this.platform.submitScore(total).then(r => {
+      if (this.session !== session) return;
+      line.textContent = !r.posted ? t.lbNotPosted
+        : r.rank ? t.lbRank.replace('{rank}', r.rank) : t.lbPosted;
+      this.board = undefined; // re-read standings next time
+    });
   }
 
   nextRecommended() {

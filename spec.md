@@ -13,7 +13,7 @@ Realtime collection arena: steer a hungry black **hollow** across a miniature ni
 | Platforms | Desktop and mobile browsers with WebGL; keyboard, mouse/touch drag, gamepad |
 | Rendering | Three.js r160 (`vendor/three.module.js`, r160 addons under `vendor/three/addons/`, importmap in `index.html`) perspective scene with optional post-processing; all controls have DOM equivalents |
 | Persistence | `localStorage` (`gravity-hollow:save:v1`, `:settings:v1`, `:replays:v1`) is the offline cache; hosted (launch token) mirrors the save document to the platform cloud slot |
-| Host | `server.js` (static + `/api/v1/time` + authoritative `/ws` rooms), declared in `starhermit.txt` |
+| Host | `score-script.js` is the platform script declared in `starhermit.txt`; `server.js` (static + `/api/v1/time` + authoritative `/ws` rooms) is the local dev host |
 
 File map:
 
@@ -25,7 +25,7 @@ File map:
 | `src/rules.js` | Pure engine: `createMatch`, `queryActions`, `applyCommand`, `step` (30 Hz), scoring, `rankings`, `hashState` |
 | `src/content.js` | Themes, 40 Journey stages, 8 challenges, 3 practice stages, 5 lessons, daily generator, validators |
 | `src/session.js` | Fixed-step loop, replay envelope + `verifyReplay`, undo, save/settings persistence, achievements |
-| `src/platform.js` | StarHermit layer: launch-token read/strip + refresh, account nickname, cloud-save mirror (stored zip), read-only leaderboard, sync status |
+| `src/platform.js` | StarHermit layer: launch-token read/strip + refresh, account nickname, cloud-save mirror (stored zip), `high-score` leaderboard post + read, sync status |
 | `src/render.js` | Three.js scene: instanced props, void views, pooled particles, atmosphere, graphics settings (`setGraphics`/`graphicsInfo`), post chain, adaptive resolution, spring camera |
 | `src/gfx.js` | Pure graphics quality model: presets, categories, `detectPreset`, `resolve`, `choosePreset`, `presetTier`, `describe` |
 | `src/gfx-ui.js` | Settings → Graphics section builder and its localized strings (9 locales) |
@@ -33,12 +33,13 @@ File map:
 | `src/ui.js` | Screen manager, focus restoration, HUD, setup/results/help/settings builders, toasts, captions |
 | `src/audio.js` | WebAudio buses, authored Opus one-shots + ambience beds with synth fallbacks, adaptive music |
 | `src/main.js` | `App` state machine, input (keys/pointer/gamepad), `TutorialRun`, smoke autopilot, platform sign-in wiring |
-| `server.js` | Node host: static files, time endpoint, WebSocket rooms with AI backfill and reconnect |
+| `score-script.js` | StarHermit platform script (`server=score-script.js`): range-checks a finished ranked round's total and posts it to the `high-score` leaderboard (canonical copy in the games repo's `tools/score-script.js`) |
+| `server.js` | Local dev Node host: static files, time endpoint, WebSocket rooms with AI backfill and reconnect |
 | `sfx/*.opus`, `sfx/manifest.txt` | 28 authored clips and the canonical event binding table (§9) |
 | `assets/key-art.webp`, `assets/results-*.webp` | Title backdrop and results illustrations (§8) |
 | `coverart.png`, `icon.png`, `favicon.svg` | Platform cover (1200×675), icon, tab icon |
 | `tests/rules.test.mjs`, `tests/session.test.mjs`, `tests/gfx.test.mjs`, `tests/e2e.mjs` | `npm test` (155 assertions + 10 `node --test` graphics cases) and the Playwright playthrough |
-| `starhermit.txt` | `name=Gravity Hollow`, `launch=index.html`, `server=server.js`, `cover=coverart.png` |
+| `starhermit.txt` | `name=Gravity Hollow`, `launch=index.html`, `server=score-script.js`, `cover=coverart.png` |
 
 ## 2. Vision and design pillars
 
@@ -220,9 +221,9 @@ All platform traffic goes through the shared client `starhermit-sdk.js` (loaded 
 | Cloud saves | used when hosted — the save document mirrors to slot `game:<slug>` (`/api/v1/me/cloud-saves/game:<slug>`): slot info checked at boot, remote-preferred load, an empty slot is seeded from local, ~2 s debounce + `pagehide`/hidden flush, sync status on title/profile; localStorage stays the offline cache |
 | Settings KV | used when hosted — volumes, mute, graphics, reduced motion, high contrast, larger text, palette, left-handed, hold-to-boost, timing assist, haptics, camera sway and captions are patched when Settings change; platform values win at boot |
 | Controls | keydown is routed by `KeyboardEvent.code` through `settings.bindings`, which signed in come from `StarHermit.loadBindings` (platform rebinding wins); Settings → *Keyboard bindings* shows them and a rebind is saved with `PUT /controls` |
-| Leaderboards | read-only when hosted — `GET /api/v1/games/{slug}` → `leaderboardId`, then the board's entries (nicknames resolved) on the Daily setup card; solo scores are never submitted, daily/challenge records stay local |
+| Leaderboards | used when hosted — one board, `high-score` (integer, higher is better, 0–100,000). Every finished Daily Hollow or Challenge round whose replay verifies posts its total (floored at 0) through `StarHermit.submitScores` (a practice session whose `score-script.js` posts it); the results dialog shows "Leaderboard rank: #N" (or posted / not posted), localized in the nine locales (`platform-i18n.js`). The board's top entries (nicknames resolved) show on the Daily setup card. Standalone play posts nothing and shows no line; records also stay local |
 | Server time | not used — daily boundaries use the local UTC clock |
-| Server script (`server=server.js`) | shipped as a Node host (static files, `/api/v1/time`, local rooms on `/ws`), not a Jint game script |
+| Server script (`server=score-script.js`) | a Jint score script that only posts results; `server.js` stays a local Node host (static files, `/api/v1/time`, local rooms on `/ws`) |
 | Platform achievements | not used — the 7 achievements are local and part of the cloud-saved document; no script-owned unlock path |
 | Sessions, matchmaking, platform invites, chat, voice, realtime rooms, replays | not used — Hosted Play is an honest local lobby with AI seats; no `WebSocket` is opened by shipped client code |
 
@@ -265,7 +266,7 @@ QA bar as checkable statements: (1) a new player sees instructions within the fi
 
 - Command de-duplication remembers only the previous command id per void (`rules.js` `applyCommand`), so an older id replayed after a different command is re-applied; harmless because a move only sets intent.
 - The client's Hosted Play is a local lobby with AI seats; server.js's `/ws` rooms are exercised only by external probes. Platform realtime rooms (host-routed) are future work.
-- Daily and challenge results are stored locally; there is no shared board, and `dailyExcluded` is read from the save but never written by any code path.
+- Daily and challenge results are stored locally and, when hosted, posted to the `high-score` board; `dailyExcluded` is read from the save but never written by any code path.
 - The title's "Journey n / 40" and "stages cleared" count any stage with a record, including 0-star attempts; `journey_20` correctly requires stars.
 - English only (see §10).
 - `#hud-objective` is a polite live region re-rendered at ~5 Hz; screen readers may re-announce the stage name during play.
@@ -277,7 +278,6 @@ QA bar as checkable statements: (1) a new player sees instructions within the fi
 
 - Localization into en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR, it-IT with a string table and language selection from the platform profile or `navigator.language`.
 - Platform realtime rooms for Hosted Play (host-routed: rooms API lobby/matchmaking + `/ws/v1/realtime` transport carrying the existing move/snapshot messages); until then Hosted Play stays an honest local lobby with AI seats.
-- Score submission to the platform leaderboard (read-only board today; solo scores stay client-simulated and locally recorded).
 - Marking a defective daily as excluded from ranking (the flag is honoured but never set).
 
 ## Browser interference

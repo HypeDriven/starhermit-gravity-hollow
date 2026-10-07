@@ -4,7 +4,7 @@
 // sign-in return), strips it, renews it, and owns the cloud-save slot
 // game:<slug>, the settings KV and the controls endpoint. This layer resolves
 // the account nickname, mirrors the save document, syncs preferences and key
-// bindings, and reads the leaderboard. With no token every call is skipped:
+// bindings, and posts to / reads the `high-score` leaderboard. With no token every call is skipped:
 // connectPlatform() returns null and offline play makes no request.
 
 const sdk = () => globalThis.StarHermit ?? null;
@@ -106,25 +106,35 @@ export class Platform {
 
   // --------------------------------------------------------------- leaderboard
 
-  // Read-only: the platform owns submission. Returns null when there is no
-  // board or we are offline — callers show local records only.
+  // Post a finished ranked round to the `high-score` board through the game's
+  // score-script.js (StarHermit.submitScores) → { posted, rank }.
+  async submitScore(total) {
+    if (!this.signedIn) return { posted: false, rank: null };
+    const keys = await this.sh.submitScores({ 'high-score': total });
+    if (!keys || !keys.includes('high-score')) return { posted: false, rank: null };
+    try {
+      const r = await this.sh.leaderboard('high-score', { pageSize: 100 });
+      const me = (r.items || []).find(i => i.userId === this.userId);
+      return { posted: true, rank: me ? me.rank : null };
+    } catch { return { posted: true, rank: null }; }
+  }
+
+  // The `high-score` board's top entries (null when there is no board or we are
+  // offline — callers show local records only).
   async fetchBoard(pageSize = 10) {
     if (!this.signedIn) return null;
     try {
-      const info = await this.sh.getGame();
-      if (!info?.leaderboardId) return null;
-      const data = await this.sh.leaderboardEntries(info.leaderboardId, { pageSize });
-      const raw = data.entries ?? data.items ?? [];
+      const data = await this.sh.leaderboard('high-score', { pageSize });
+      if (!data.board) return null;
+      const raw = data.items ?? [];
       const entries = await Promise.all(raw.map(async (e, i) => ({
         rank: e.rank ?? i + 1,
-        name: await this.nicknameFor(e.userId ?? e.user_id ?? e.id),
-        score: e.score ?? e.value ?? 0,
-        me: (e.userId ?? e.user_id ?? e.id) === this.userId,
+        name: await this.nicknameFor(e.userId),
+        score: e.score ?? 0,
+        me: e.userId === this.userId,
       })));
-      const me = info.me?.rank != null
-        ? { rank: info.me.rank, score: info.me.score ?? info.me.bestScore ?? 0 }
-        : null;
-      return { entries, me };
+      const mine = entries.find(e => e.me);
+      return { entries, me: mine ? { rank: mine.rank, score: mine.score } : null };
     } catch { return null; }
   }
 
