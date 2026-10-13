@@ -824,8 +824,8 @@ export class Renderer {
       this.postKey = key;
       this.buildPost(w, h);
     }
-    if (this.composer) this.composer.render(dt / 1000);
-    else this.three.render(this.scene, this.camera);
+    if (this.composer) (globalThis.GameOptions ? globalThis.GameOptions.draw(this.composer.renderer, () => this.composer.render(dt / 1000)) : this.composer.render(dt / 1000));
+    else (globalThis.GameOptions ? globalThis.GameOptions.draw(this.three, () => this.three.render(this.scene, this.camera)) : this.three.render(this.scene, this.camera));
   }
 
   rebuild() { if (this.stage) this.loadStage(this.stage, this.currSnapshot); }
