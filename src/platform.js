@@ -27,10 +27,17 @@ export class Platform {
     this.nickname = null;
     this.onSyncStatus = null;              // (status: 'synced'|'saving'|'offline') => void
     this.onSignedOut = null;               // () => void — renewal refused
+    this.onConflict = null;                // (cloudDoc) => void — another device saved first
     this._lastSettings = null;
     this._lastBindings = null;
     sh.on('saved', (ok) => this.setStatus(ok ? 'synced' : 'offline'));
     sh.on('auth', (a) => { if (!a.signedIn) this.onSignedOut?.(); });
+    // A cloud write that lost to a newer save from another device: re-read it
+    // (which re-arms writes) and let the game merge and save again.
+    sh.on('saveconflict', () => {
+      this.setStatus('saving');
+      sh.loadJSON().then((doc) => this.onConflict?.(doc), () => this.setStatus('offline'));
+    });
     this._flushHandler = () => { if (document.visibilityState !== 'visible') this.flushSave(); };
     document.addEventListener('pagehide', this._flushHandler);
     document.addEventListener('visibilitychange', this._flushHandler);
@@ -65,8 +72,8 @@ export class Platform {
   /** The remote {v, save, savedAt} document, or null (none yet / unreachable). */
   async loadCloudSave() {
     try {
-      const info = await this.sh.saveInfo();
-      if (info && info.exists === false) return null;
+      // loadJSON reads /info first (an empty slot is no 404) and records the
+      // version it saw: later writes only land on that version (else saveconflict).
       const doc = await this.sh.loadJSON();
       if (doc) this.setStatus('synced');
       return doc;

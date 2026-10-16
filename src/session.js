@@ -6,6 +6,7 @@
 import * as Rules from './rules.js';
 import { hashString } from './rng.js';
 import { migrateQuality } from './gfx.js';
+import { T } from './i18n/t.js';
 
 export const BUILD_VERSION = '1.0.0';
 const SAVE_KEY = 'gravity-hollow:save:v1';
@@ -43,6 +44,36 @@ export function loadSave() {
   });
 }
 export function persistSave(save) { saveJson(SAVE_KEY, save); }
+
+/**
+ * Combine two save documents (this device + the cloud copy) without losing
+ * progress from either: best journey stars/scores, every finished lesson,
+ * challenge and achievement (earliest unlock time), the better daily score per
+ * day, the higher counters and every day played. The profile and cosmetics stay
+ * this device's (the account nickname replaces the name when signed in).
+ */
+export function mergeSaves(local, remote) {
+  if (!remote || typeof remote !== 'object') return local;
+  if (!local || typeof local !== 'object') return remote;
+  const out = { ...remote, ...local };
+  const keyed = (a = {}, b = {}, pick) => {
+    const o = { ...b };
+    for (const [k, v] of Object.entries(a)) o[k] = k in b ? pick(v, b[k]) : v;
+    return o;
+  };
+  out.journey = keyed(local.journey, remote.journey, (a, b) => ({ ...b, ...a, stars: Math.max(a.stars ?? 0, b.stars ?? 0), best: Math.max(a.best ?? 0, b.best ?? 0) }));
+  out.tutorialsDone = { ...(remote.tutorialsDone ?? {}), ...(local.tutorialsDone ?? {}) };
+  out.daily = keyed(local.daily, remote.daily, (a, b) => ((b.score ?? -Infinity) > (a.score ?? -Infinity) ? b : a));
+  out.challenges = keyed(local.challenges, remote.challenges, (a, b) => ({ ...b, ...a, done: !!(a.done || b.done), best: Math.max(a.best ?? 0, b.best ?? 0) }));
+  out.achievements = keyed(local.achievements, remote.achievements, (a, b) => ((b.at ?? Infinity) < (a.at ?? Infinity) ? b : a));
+  out.masteryXp = Math.max(local.masteryXp ?? 0, remote.masteryXp ?? 0);
+  out.sessionsPlayed = Math.max(local.sessionsPlayed ?? 0, remote.sessionsPlayed ?? 0);
+  out.lastDailyKey = [local.lastDailyKey, remote.lastDailyKey].filter(Boolean).sort().pop() ?? null;
+  if (local.playDays || remote.playDays) out.playDays = [...new Set([...(remote.playDays ?? []), ...(local.playDays ?? [])])].sort();
+  if (local.dailyExcluded || remote.dailyExcluded) out.dailyExcluded = [...new Set([...(remote.dailyExcluded ?? []), ...(local.dailyExcluded ?? [])])].sort();
+  if (local.profile?.guest && remote.profile && !remote.profile.guest) out.profile = remote.profile;
+  return out;
+}
 
 export const DEFAULT_SETTINGS = {
   music: 0.7, effects: 0.9, ambience: 0.5, voice: 0.8, muted: false,
@@ -126,7 +157,7 @@ export class Session {
 
   awaySummary() {
     const me = this.state.voids[0];
-    return `Paused while away. Mass ${Math.floor(me.mass)}, ${this.state.props.length} props in the plaza.`;
+    return T('Paused while away. Mass {mass}, {props} props in the plaza.', { mass: Math.floor(me.mass), props: this.state.props.length });
   }
 
   start() {

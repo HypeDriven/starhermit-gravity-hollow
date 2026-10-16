@@ -7,6 +7,7 @@
 // is loading or unavailable.
 
 import { mulberry32 } from './rng.js';
+import { T } from './i18n/t.js';
 
 // event name -> authored sample basename (sfx/<basename>.opus)
 const SFX_SAMPLES = {
@@ -272,21 +273,21 @@ export class AudioEngine {
 
 function captionFor(name, opts) {
   switch (name) {
-    case 'eat': return `consumed +${opts.mass ?? 1}`;
-    case 'eat_gem': return 'gem consumed';
-    case 'eat_void': return 'rival consumed';
-    case 'eat_boulder': return `boulder consumed +${opts.mass ?? 8}`;
-    case 'swallowed': return 'you were swallowed';
-    case 'clock_warning': return '15 seconds left';
-    case 'move_limit': return 'out of movement';
-    case 'lesson_complete': return 'lesson complete';
-    case 'burn': return 'burned by an ember';
-    case 'goal': return 'objective complete';
-    case 'round_end': return 'round over';
-    case 'achievement': return 'achievement unlocked';
-    case 'invalid': return 'action not allowed';
-    case 'countdown': return 'countdown tick';
-    case 'go': return 'go!';
+    case 'eat': return T('consumed +{n}', { n: opts.mass ?? 1 });
+    case 'eat_gem': return T('gem consumed');
+    case 'eat_void': return T('rival consumed');
+    case 'eat_boulder': return T('boulder consumed +{n}', { n: opts.mass ?? 8 });
+    case 'swallowed': return T('you were swallowed');
+    case 'clock_warning': return T('15 seconds left');
+    case 'move_limit': return T('out of movement');
+    case 'lesson_complete': return T('lesson complete');
+    case 'burn': return T('burned by an ember');
+    case 'goal': return T('objective complete');
+    case 'round_end': return T('round over');
+    case 'achievement': return T('achievement unlocked');
+    case 'invalid': return T('action not allowed');
+    case 'countdown': return T('countdown tick');
+    case 'go': return T('go!');
     default: return null;
   }
 }

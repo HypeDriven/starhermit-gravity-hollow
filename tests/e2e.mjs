@@ -34,16 +34,24 @@ const MIME = {
 const browserNoise = /GL Driver Message|GPU stall due to ReadPixels|Automatic fallback to software WebGL|EnableWebGLDeveloperExtensions/i;
 const SHOT = (stage, pass) => `/tmp/gravity-hollow-e2e-${stage}-${pass}.png`;
 
-const apiLog = [];
-function platformMock(req, res, p) {
+const apiLog = [], apiBodies = [];
+let preferredLanguage = null; // the account's language (set for the language pass)
+async function platformMock(req, res, p) {
   apiLog.push(`${req.method} ${p}`);
+  let body = '';
+  for await (const chunk of req) body += chunk;
+  if (body) apiBodies.push({ method: req.method, path: p, body });
   const json = (b, st = 200) => { res.writeHead(st, { 'content-type': 'application/json' }); res.end(JSON.stringify(b)); };
+  // Language pass: the account prefers Canadian French; the choice is stored as ui.language.
+  if (p === '/api/v1/me/language') return json(preferredLanguage ? { preferredLanguage } : {});
+  if (p.endsWith('/games/hollow-test/settings/ui.language')) return json({ key: 'ui.language', value: JSON.parse(body || '{}').value });
+  if (p.endsWith('/games/hollow-test/reports') && req.method === 'POST') return json({ id: 'r-1', status: 'open' }, 201);
   if (p.endsWith('/profile')) return json({ username: 'raw', nickname: 'Event Horizon' });
   if (p.endsWith('/games/hollow-test/settings') && req.method === 'GET') return json({ settings: { music: 0.35 } });
   if (p.endsWith('/games/hollow-test/settings')) return json({ settings: {} });
   if (p.endsWith('/games/hollow-test/controls')) return json(req.method === 'GET' ? { actions: [{ action: 'hint', codes: ['KeyG'] }] } : {});
   if (p.endsWith('/cloud-saves/game:hollow-test/info')) return json({ exists: false });
-  if (p.endsWith('/cloud-saves/game:hollow-test')) return json({});
+  if (p.endsWith('/cloud-saves/game:hollow-test')) return json(req.method === 'PUT' ? { etag: '"v1"' } : {});
   return json({ error: 'not found' }, 404);
 }
 
@@ -307,8 +315,8 @@ try {
       await page.screenshot({ path: SHOT('title', 'signed-in') });
       await page.click('#btn-settings');
       await page.click('#btn-rebind');
-      if (!/hint\s*G\s*rebind/.test(await page.textContent("#bind-editor"))) throw new Error('settings do not show the platform binding');
-      await page.locator('#bind-editor .bind-row', { hasText: 'camera' }).locator('button').click();
+      if (!/Hint\s*G\s*Rebind/.test(await page.textContent("#bind-editor"))) throw new Error('settings do not show the platform binding');
+      await page.locator('#bind-editor .bind-row', { hasText: 'Camera' }).locator('button').click();
       await page.keyboard.press('KeyV');
       for (let i = 0; i < 30 && !apiLog.includes('PUT /api/v1/games/hollow-test/controls'); i++) await page.waitForTimeout(100);
       if (!apiLog.includes('PUT /api/v1/games/hollow-test/controls')) throw new Error('rebind not saved to the platform: ' + apiLog.join(', '));
@@ -318,6 +326,87 @@ try {
       console.log('ok - [signed-in] nickname, synced settings, platform binding + rebind, invite link, cloud seed');
     } catch (e) {
       failures.push(`[signed-in] ${e.message}`);
+    } finally {
+      await context.close();
+    }
+  }
+
+  // Language (desktop + mobile, signed in): Automatic follows the account's
+  // preferred language (fr-CA); choosing German in Settings re-renders the open
+  // screen, the title and a running match's HUD at once and stores ui.language;
+  // Report a problem posts to /reports.
+  for (const pass of [
+    { name: 'desktop', viewport: { width: 1280, height: 800 }, hasTouch: false },
+    { name: 'mobile', viewport: { width: 390, height: 844 }, hasTouch: true },
+  ]) {
+    if (process.env.E2E_PASSES && !process.env.E2E_PASSES.split(',').includes('language')) break;
+    const BASE = `http://127.0.0.1:${server.address().port}`;
+    const context = await browser.newContext({ viewport: pass.viewport, hasTouch: pass.hasTouch });
+    const page = await context.newPage();
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+    page.on('console', (m) => { if ((m.type() === 'error' || m.type() === 'warning') && !browserNoise.test(m.text())) errors.push(`console ${m.type()}: ${m.text()}`); });
+    const b64u = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const token = 'h.' + b64u({ sub: 'void-12345678', game_scope: 'hollow-test', exp: Math.floor(Date.now() / 1000) + 3600 }) + '.s';
+    const text = (sel) => page.textContent(sel).then((t) => t.trim());
+    const waitText = (sel, want) => page.waitForFunction(([s, w]) => document.querySelector(s)?.textContent.trim() === w, [sel, want], { timeout: 10000 });
+    const fits = () => page.evaluate(() => document.scrollingElement.scrollWidth <= innerWidth);
+    try {
+      apiBodies.length = 0;
+      preferredLanguage = 'fr-CA';
+      await page.goto('about:blank');
+      await page.goto(`${BASE}/#game_token=${token}`, { waitUntil: 'load' });
+      await page.waitForSelector('#screen-title:not(.hidden)', { timeout: 20000 });
+      await page.waitForFunction(() => document.documentElement.lang === 'fr-CA', null, { timeout: 10000 });
+      await waitText('#btn-play', 'Jouer');
+      await page.click('#btn-settings');
+      const lang = page.locator('[data-settings-section="language"] select');
+      await lang.scrollIntoViewIfNeeded();
+      if (await lang.inputValue() !== 'auto') throw new Error('Language is not Automatic');
+      if (!/Français \(Canada\)/.test(await lang.locator('option[value="auto"]').textContent())) throw new Error('Automatic does not name fr-CA');
+      await lang.selectOption('de-DE');
+      await page.waitForFunction(() => document.documentElement.lang === 'de-DE', null, { timeout: 10000 });
+      await waitText('#settings-h', 'Einstellungen');
+      await waitText('#btn-settings-close', 'Fertig');
+      if (await text('#gfx-section legend') !== 'Grafik') throw new Error('graphics panel not relabelled');
+      for (let i = 0; i < 30 && !apiBodies.some((b) => b.path.endsWith('/settings/ui.language')); i++) await page.waitForTimeout(100);
+      const put = apiBodies.find((b) => b.method === 'PUT' && b.path.endsWith('/settings/ui.language'));
+      if (!put || JSON.parse(put.body).value?.choice !== 'de-DE') throw new Error('ui.language not stored: ' + JSON.stringify(put));
+      if (!await fits()) throw new Error('German settings overflow sideways');
+      await page.screenshot({ path: SHOT('language-de-settings', pass.name), fullPage: true });
+      // Report a problem (shared section, signed in only).
+      await page.locator('[data-game-report="title"]').scrollIntoViewIfNeeded();
+      await page.fill('[data-game-report="title"]', 'Hollow stuck on a planter');
+      await page.click('[data-game-report="send"]');
+      for (let i = 0; i < 30 && !apiBodies.some((b) => b.path.endsWith('/reports')); i++) await page.waitForTimeout(100);
+      const report = apiBodies.find((b) => b.path.endsWith('/reports'));
+      if (!report || JSON.parse(report.body).kind !== 'bug') throw new Error('report not posted');
+      await page.click('#btn-settings-close');
+      await waitText('#btn-play', 'Spielen');
+      // A running match follows a switch made from the pause menu.
+      await page.click('#btn-play');
+      await page.locator('#mode-cards .mode-card').nth(3).click();
+      await page.locator('#mode-cards .mode-card', { hasText: 'Entspannt' }).click();
+      await page.click('#btn-start-match');
+      await page.waitForSelector('#hud:not(.hidden)');
+      await page.waitForFunction(() => /Masse/.test(document.querySelector('#hud-score')?.textContent || ''), null, { timeout: 15000 });
+      if (!await fits()) throw new Error('German HUD overflows sideways');
+      await page.screenshot({ path: SHOT('language-de-hud', pass.name) });
+      await page.click('#btn-pause');
+      await page.click('#btn-pause-settings');
+      await lang.scrollIntoViewIfNeeded();
+      await lang.selectOption('it-IT');
+      await page.waitForFunction(() => document.documentElement.lang === 'it-IT', null, { timeout: 10000 });
+      await page.click('#btn-settings-close');
+      await waitText('#btn-resume', 'Riprendi');
+      await page.click('#btn-resume');
+      await page.waitForFunction(() => /Massa/.test(document.querySelector('#hud-score')?.textContent || ''), null, { timeout: 15000 });
+      if (await text('#hud-objective') !== 'Allenamento — Rilassato') throw new Error('HUD stage name not relabelled: ' + await text('#hud-objective'));
+      if (errors.length) throw new Error(`page errors:\n${errors.join('\n')}`);
+      console.log(`ok - [language ${pass.name}] Automatic → fr-CA, German/Italian live switch (settings, title, HUD), ui.language, Report a problem`);
+    } catch (e) {
+      failures.push(`[language ${pass.name}] ${e.message}`);
+      try { await page.screenshot({ path: SHOT('language-failure', pass.name) }); } catch {}
     } finally {
       await context.close();
     }

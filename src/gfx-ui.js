@@ -1,8 +1,9 @@
 // Gravity Hollow — Graphics section of the Settings panel. Builds the controls
 // from gfx.js (presets, categories), applies every change live through
 // Renderer.setGraphics and persists it with the other settings. The panel's
-// strings are localized (navigator.language); the rest of the game is English.
+// strings are localized in the game's language (src/i18n/i18n.js).
 
+import { lang as gameLang } from './i18n/t.js';
 import { PRESETS, CATEGORIES, presetTier, choosePreset } from './gfx.js';
 
 const STRINGS = {
@@ -95,11 +96,14 @@ const fmt = (s, v) => s.replace('{0}', v);
  * Build the Graphics controls into `host`.
  * `apply(persist)` pushes settings.graphics to the renderer (and saves when `persist`).
  */
-export function bindGraphicsPanel(host, { settings, renderer, apply }) {
-  const langs = typeof navigator !== 'undefined' ? (navigator.languages?.length ? navigator.languages : [navigator.language]) : [];
-  const locale = pickLocale(langs);
+export function bindGraphicsPanel(host, opts) {
+  const { settings, renderer, apply } = opts;
+  // Built in the game's language; relabel() rebuilds only these controls (in
+  // place, before the shared Sound / Language / Report sections) on a change.
+  const locale = gameLang();
   const T = graphicsStrings(locale);
-  host.lang = locale;
+  for (const el of host.querySelectorAll(':scope > #gfx-body, :scope > #gfx-summary, :scope > #gfx-post-note')) el.remove();
+  clearInterval(host._gfxTimer);
   if (!settings.graphics || typeof settings.graphics !== 'object') settings.graphics = {};
   const g = () => settings.graphics;
   const legend = host.querySelector('legend');
@@ -108,7 +112,7 @@ export function bindGraphicsPanel(host, { settings, renderer, apply }) {
   const body = document.createElement('div');
   body.className = 'gfx-grid';
   body.id = 'gfx-body';
-  host.appendChild(body);
+  host.insertBefore(body, legend ? legend.nextSibling : host.firstChild);
 
   const row = (labelText, control, extra) => {
     const label = document.createElement('label');
@@ -183,7 +187,7 @@ export function bindGraphicsPanel(host, { settings, renderer, apply }) {
   note.className = 'small gfx-note';
   note.hidden = true;
   note.textContent = T.postFailed;
-  host.append(summary, note);
+  body.after(summary, note);
 
   const sync = () => {
     const s = g();
@@ -230,6 +234,6 @@ export function bindGraphicsPanel(host, { settings, renderer, apply }) {
 
   sync();
   // pixel size / adaptive scale drift while open: refresh the summary line
-  setInterval(() => { if (!host.closest('.hidden')) refreshSummary(); }, 1000);
-  return { sync };
+  host._gfxTimer = setInterval(() => { if (!host.closest('.hidden')) refreshSummary(); }, 1000);
+  return { sync, relabel: () => bindGraphicsPanel(host, opts) };
 }

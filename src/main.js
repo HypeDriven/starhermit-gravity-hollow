@@ -2,9 +2,10 @@
 // boot → title → mode-select → setup → countdown → active ↔ paused → results.
 // Wires session (rules) ↔ renderer ↔ UI ↔ audio, and all input modalities.
 
-import { Session, loadSave, persistSave, loadSettings, persistSettings, recordResult, verifyReplay } from './session.js';
+import { Session, loadSave, persistSave, loadSettings, persistSettings, recordResult, verifyReplay, mergeSaves, ACHIEVEMENTS } from './session.js';
 import { Renderer } from './render.js';
-import { UI, fmtTime } from './ui.js';
+import { UI, fmtTime, stageName, goalText, pname } from './ui.js';
+import { T, N } from './i18n/t.js';
 import { AudioEngine } from './audio.js';
 import { journeyAll, challenges, practiceStage, tutorials, dailyStage, validateAll } from './content.js';
 import * as Rules from './rules.js';
@@ -41,7 +42,7 @@ class App {
   // ---------------------------------------------------------------- boot
 
   async boot() {
-    $('boot-status').textContent = 'Checking plaza rules…';
+    $('boot-status').textContent = N('Checking plaza rules…');
     $('boot-progress').value = 30;
     // content validation runs at boot (dev evidence) — never blocks play
     try {
@@ -50,13 +51,13 @@ class App {
       if (bad.length) console.warn('[content] validation issues', bad);
     } catch (e) { console.warn('[content] validator failed', e); }
 
-    $('boot-status').textContent = 'Signing in…';
+    $('boot-status').textContent = N('Signing in…');
     $('boot-progress').value = 40;
     this.platform = connectPlatform();
     if (this.platform) await this.signIn();
 
 
-    $('boot-status').textContent = 'Raising the plaza…';
+    $('boot-status').textContent = N('Raising the plaza…');
     $('boot-progress').value = 75;
     try {
       this.renderer = new Renderer($('game-canvas'), this.settings);
@@ -67,9 +68,12 @@ class App {
       return;
     }
     this.applySettings();
-    this.renderer.onContextLost = () => this.ui.toast('Graphics context lost — restoring…');
+    this.renderer.onContextLost = () => this.ui.toast(T('Graphics context lost — restoring…'));
     this.bindChrome();
     this.bindInput();
+    // Live language switching: static markup is re-translated by src/i18n/i18n.js;
+    // everything built at runtime is redrawn here (no restart, the match keeps running).
+    document.addEventListener('gh-language', () => this.relocalize());
     this.onResize();
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('orientationchange', () => setTimeout(() => this.onResize(), 60));
@@ -141,15 +145,26 @@ class App {
       this.platform.loadProfile(),
       this.platform.loadCloudSave(),
     ]);
-    if (remote?.save) this.save = remote.save; // remote-preferred on conflict
+    // Both copies count: the merge keeps the best of each (see mergeSaves).
+    const merged = remote?.save ? mergeSaves(this.save, remote.save) : this.save;
+    const ahead = remote?.save && JSON.stringify(merged) !== JSON.stringify(remote.save);
+    this.save = merged;
     this.save.profile = this.save.profile ?? { name: 'Wanderer', guest: true };
     if (nick) { // the account name always wins over anything stored
       this.save.profile.name = nick;
       this.save.profile.guest = false;
     }
     if (remote?.save || nick) persistSave(this.save); // refresh the local cache
-    if (!remote?.save) this.platform.scheduleSave(this.save); // empty slot: seed it
+    if (!remote?.save || ahead) this.platform.scheduleSave(this.save); // empty slot / local progress the cloud lacks
     else this.ui.setSyncStatus('synced');
+    // Another device saved since our last read: re-read, merge, save again.
+    this.platform.onConflict = (doc) => {
+      const next = mergeSaves(this.save, doc?.save);
+      for (const k of Object.keys(next)) this.save[k] = next[k];
+      persistSave(this.save);
+      this.platform.scheduleSave(this.save);
+      if (this.ui.current === 'title') this.ui.updateTitle(this.save);
+    };
     // Preferences and key bindings: platform values win over local defaults.
     const [prefs, bindings] = await Promise.all([
       this.platform.loadSettings(),
@@ -197,7 +212,7 @@ class App {
     const leftMs = next.getTime() - this.now();
     const hrs = Math.floor(leftMs / 3600000), mins = Math.floor((leftMs % 3600000) / 60000);
     const played = this.save.daily[key];
-    this.ui.setDailySub(played ? `done · ${played.score} pts` : `new in ${hrs}h ${mins}m`);
+    this.ui.setDailySub(played ? T('done · {score} pts', { score: played.score }) : T('new in {h}h {m}m', { h: hrs, m: mins }));
   }
 
   // ------------------------------------------------------------ chrome
@@ -217,7 +232,7 @@ class App {
     $('btn-replay-tutorial').addEventListener('click', () => { this.startLearn(0); });
 
     this.ui.bindSettings(this.settings, () => this.applySettings(true));
-    bindGraphicsPanel($('gfx-section'), {
+    this.gfx = bindGraphicsPanel($('gfx-section'), {
       settings: this.settings, renderer: this.renderer,
       apply: (persist) => this.applySettings(persist),
     });
@@ -263,7 +278,7 @@ class App {
       const gfxKey = JSON.stringify(s.graphics);
       if (gfxKey !== this._gfxKey) { this._gfxKey = gfxKey; this.renderer.setGraphics(s.graphics); }
     }
-    if (persist) { persistSettings(s); this.platform?.sync(s); this.ui.toast('Settings saved'); }
+    if (persist) { persistSettings(s); this.platform?.sync(s); this.ui.toast(T('Settings saved')); }
   }
 
   persistAll() {
@@ -274,16 +289,32 @@ class App {
 
   onResize() { this.renderer?.resize(); }
 
+  /** Redraw runtime-built text after a language change (gh-language). */
+  relocalize() {
+    this.ui.relocalize();
+    this.ui.updateTitle(this.save);
+    this.refreshDailyLine();
+    this.updateAccountButtons();
+    if (this.session && this.matchFlow === 'playing') this.ui.updateHud(this.session.state, this.session.stage, this.session.query());
+    if (this.matchFlow === 'results') {
+      if (this.replayLine) $('results-replay').textContent = this.replayLine();
+      if (this.lbLine && !$('results-lb').hidden) $('results-lb').textContent = this.lbLine();
+    }
+    const away = $('pause-away');
+    if (this.session && away.textContent && /\d/.test(away.textContent)) away.textContent = this.session.awaySummary();
+    if (this.gfx) this.gfx = this.gfx.relabel();
+  }
+
   // ---------------------------------------------------------- navigation
 
   showModes() {
     const cards = [
-      { name: 'Learn', desc: 'Five short lessons. One rule at a time.', badge: this.learnDone() ? 'complete' : 'start here', onPick: () => this.startLearn(this.nextLearnIndex()) },
+      { name: 'Learn', desc: 'Five short lessons. One rule at a time.', badge: this.learnDone() ? N('complete') : N('start here'), onPick: () => this.startLearn(this.nextLearnIndex()) },
       { name: 'Journey', desc: '40 authored stages with mastery tests.', onPick: () => this.showJourney() },
-      { name: 'Daily Hollow', desc: 'One shared seed per UTC day. Everyone gets the same plaza.', badge: 'ranked', onPick: () => this.openDaily() },
+      { name: 'Daily Hollow', desc: 'One shared seed per UTC day. Everyone gets the same plaza.', badge: N('ranked'), onPick: () => this.openDaily() },
       { name: 'Practice', desc: 'Relaxed play with undo. Never rated.', onPick: () => this.openPractice() },
       { name: 'Challenges', desc: 'Move limits, no boost, cramped courts…', onPick: () => this.openChallenges() },
-      { name: 'Hosted Play', desc: 'Local lobby with AI seats. Realtime rooms are planned for a later build.', badge: 'local lobby', onPick: () => this.openHosted() },
+      { name: 'Hosted Play', desc: 'Local lobby with AI seats. Realtime rooms are planned for a later build.', badge: N('local lobby'), onPick: () => this.openHosted() },
     ];
     this.ui.buildModeCards(cards);
     this.ui.show('modes');
@@ -317,7 +348,7 @@ class App {
   openPractice() {
     // difficulty picker as mode cards
     this.ui.buildModeCards(['relaxed', 'standard', 'intense'].map(d => ({
-      name: `Practice — ${d}`, desc: d === 'relaxed' ? 'No rivals, no embers. Just drift and eat.'
+      stage: practiceStage(d), desc: d === 'relaxed' ? 'No rivals, no embers. Just drift and eat.'
         : d === 'standard' ? 'One gentle rival.' : 'Two hungry rivals, embers about.',
       badge: 'unrated · undo on',
       onPick: () => this.openSetup(practiceStage(d)),
@@ -326,8 +357,8 @@ class App {
   }
   openChallenges() {
     this.ui.buildModeCards(challenges().map(c => ({
-      name: c.name, desc: c.description,
-      badge: this.save.challenges[c.id]?.done ? 'cleared' : 'ranked',
+      stage: c, desc: c.description,
+      badge: this.save.challenges[c.id]?.done ? N('cleared') : N('ranked'),
       onPick: () => this.openSetup(c),
     })));
     this.ui.show('modes');
@@ -337,8 +368,8 @@ class App {
     // a WebSocket — platform realtime rooms are future work (see spec.md), so
     // no button here promises seats we cannot seat.
     this.ui.buildModeCards([
-      { name: 'Quick Match', desc: '4 voids, 2 minutes. AI fills empty seats.', badge: 'local lobby', onPick: () => this.openSetup(this.hostedStage(4, 120)) },
-      { name: 'Big Table', desc: '8 voids, 3 minutes, crowded plaza.', badge: 'local lobby', onPick: () => this.openSetup(this.hostedStage(8, 180)) },
+      { name: 'Quick Match', desc: '4 voids, 2 minutes. AI fills empty seats.', badge: N('local lobby'), onPick: () => this.openSetup(this.hostedStage(4, 120)) },
+      { name: 'Big Table', desc: '8 voids, 3 minutes, crowded plaza.', badge: N('local lobby'), onPick: () => this.openSetup(this.hostedStage(8, 180)) },
     ]);
     this.ui.show('modes');
   }
@@ -404,7 +435,7 @@ class App {
     this.audio.startMusic(stage.theme);
     this.audio.startAmbience(stage.theme);
     this.audio.setIntensity(0.3);
-    this.ui.announce(`${stage.name}. ${stage.goals?.length ? stage.goals.map(g => g.type).join(', ') : 'Outscore every rival.'}`, true);
+    this.ui.announce(`${stageName(stage)}. ${stage.goals?.length ? stage.goals.map(goalText).join('; ') : T('Outscore every rival.')}`, true);
 
     // tutorial controller for Learn mode
     this.tutorial = stage.kind === 'learn' ? new TutorialRun(stage, this) : null;
@@ -457,7 +488,7 @@ class App {
 
   onPhase(phase, reason) {
     if (phase === 'paused' && reason === 'backgrounded') {
-      $('pause-away').textContent = 'Paused because the tab was hidden.';
+      $('pause-away').textContent = N('Paused because the tab was hidden.');
       this.ui.show('pause');
     } else if (phase === 'resume-available') {
       $('pause-away').textContent = reason ?? '';
@@ -465,7 +496,7 @@ class App {
       this.finishMatch();
     } else if (phase === 'undo') {
       this.audio.event('undo');
-      this.ui.toast('Undone');
+      this.ui.toast(T('Undone'));
     }
   }
 
@@ -474,23 +505,23 @@ class App {
     for (const e of events) {
       switch (e.t) {
         case 'start':
-          this.ui.countdown('GO');
+          this.ui.countdown(T('GO'));
           this.audio.event('go');
           setTimeout(() => this.ui.countdown(null), 600);
-          this.ui.announce('Go!', true);
+          this.ui.announce(T('Go!'), true);
           break;
         case 'eat': if (e.id === 0) { this.audio.event('eat', { mass: e.m }); this.haptic(8); } break;
-        case 'eat_gem': if (e.id === 0) { this.audio.event('eat_gem'); this.haptic(15); this.ui.announce('Gem consumed'); } break;
+        case 'eat_gem': if (e.id === 0) { this.audio.event('eat_gem'); this.haptic(15); this.ui.announce(T('Gem consumed')); } break;
         case 'eat_void':
           this.audio.event(e.victim === 0 ? 'swallowed' : 'eat_void');
           this.haptic(40);
-          this.ui.announce(e.id === 0 ? `You swallowed ${state.voids[e.victim].name}!` : `${state.voids[e.id].name} swallowed ${state.voids[e.victim].name}`, e.id !== 0 && e.victim === 0);
+          this.ui.announce(e.id === 0 ? T('You swallowed {name}!', { name: pname(state.voids[e.victim].name) }) : T('{eater} swallowed {name}', { eater: pname(state.voids[e.id].name), name: pname(state.voids[e.victim].name) }), e.id !== 0 && e.victim === 0);
           break;
-        case 'burn': if (e.id === 0) { this.audio.event('burn'); this.haptic(25); this.ui.announce('Burned by an ember'); } break;
+        case 'burn': if (e.id === 0) { this.audio.event('burn'); this.haptic(25); this.ui.announce(T('Burned by an ember')); } break;
         case 'boost': if (e.id === 0) this.audio.event('boost'); break;
-        case 'respawn': if (e.id === 0) { this.audio.event('respawn'); this.ui.announce('You respawned'); } break;
-        case 'goal': this.audio.event('goal'); this.ui.toast('Objective complete!'); break;
-        case 'move_limit': if (e.ids.includes(0)) { this.audio.event('move_limit'); this.ui.toast('Out of movement!'); } break;
+        case 'respawn': if (e.id === 0) { this.audio.event('respawn'); this.ui.announce(T('You respawned')); } break;
+        case 'goal': this.audio.event('goal'); this.ui.toast(T('Objective complete!')); break;
+        case 'move_limit': if (e.ids.includes(0)) { this.audio.event('move_limit'); this.ui.toast(T('Out of movement!')); } break;
       }
       this.tutorial?.onEvent(e, state);
     }
@@ -532,20 +563,22 @@ class App {
     const after = Object.keys(this.save.achievements).filter(k => !before.has(k));
     for (const k of after) {
       this.audio.event('achievement');
-      this.ui.toast(`Achievement: ${k.replace(/_/g, ' ')}`);
+      this.ui.toast(T('Achievement: {name}', { name: T(ACHIEVEMENTS[k]?.name ?? k) }));
     }
 
     // verify our own replay as tamper evidence (skipped if undo rewrote history)
     const check = this.session.undoUsed
       ? { ok: true, skipped: true }
       : verifyReplay(results.replay, this.session.stage);
-    $('results-replay').textContent = check.skipped
-      ? 'Practice mode — replay not ranked'
-      : check.ok ? `Replay verified · ${results.replay.result.finalHash}` : `Replay mismatch (${check.why})`;
+    this.replayLine = () => check.skipped
+      ? T('Practice mode — replay not ranked')
+      : check.ok ? T('Replay verified · {hash}', { hash: results.replay.result.finalHash }) : T('Replay mismatch ({why})', { why: check.why });
+    $('results-replay').textContent = this.replayLine();
 
-    const progress = this.session.stage.kind === 'journey'
-      ? `${Object.keys(this.save.journey).length} of 40 stages cleared`
-      : this.session.stage.kind === 'daily' ? 'Daily result recorded' : '';
+    const kindNow = this.session.stage.kind, cleared = Object.keys(this.save.journey).length;
+    const progress = () => kindNow === 'journey'
+      ? T('{n} of {total} stages cleared', { n: cleared, total: 40 })
+      : kindNow === 'daily' ? T('Daily result recorded') : '';
     this.ui.showResults(results, progress);
     this.matchFlow = 'results';
     const kind = this.session.stage.kind;
@@ -558,14 +591,14 @@ class App {
   postToLeaderboard(total) {
     const line = $('results-lb');
     if (total == null || !this.platform?.userId) { line.hidden = true; return; }
-    const t = platformStrings();
     line.hidden = false;
-    line.textContent = t.lbPosting;
+    this.lbLine = () => platformStrings().lbPosting;
+    line.textContent = this.lbLine();
     const session = this.session;
     this.platform.submitScore(total).then(r => {
       if (this.session !== session) return;
-      line.textContent = !r.posted ? t.lbNotPosted
-        : r.rank ? t.lbRank.replace('{rank}', r.rank) : t.lbPosted;
+      this.lbLine = () => { const t = platformStrings(); return !r.posted ? t.lbNotPosted : r.rank ? t.lbRank.replace('{rank}', r.rank) : t.lbPosted; };
+      line.textContent = this.lbLine();
       this.board = undefined; // re-read standings next time
     });
   }
@@ -688,7 +721,7 @@ class App {
   doUndo() {
     if (!this.session) return;
     const r = this.session.undo();
-    if (!r.ok) { this.audio.event('invalid'); this.ui.toast(r.reason === 'undo_empty' ? 'Nothing to undo' : 'Undo is not available in this mode'); }
+    if (!r.ok) { this.audio.event('invalid'); this.ui.toast(T(r.reason === 'undo_empty' ? 'Nothing to undo' : 'Undo is not available in this mode')); }
   }
 
   doHint() {
@@ -697,12 +730,12 @@ class App {
     const q = this.session.query();
     this.audio.event('hint');
     let msg;
-    if (!q.canMove) msg = q.moveReason === 'respawning' ? 'You are respawning — hang tight.' : q.moveReason === 'move_limit' ? 'No movement left — make peace with the plaza.' : 'Waiting for the round…';
-    else if (q.hazards.length) msg = 'Danger close: a bigger void or an ember is near. Steer away!';
+    if (!q.canMove) msg = T(q.moveReason === 'respawning' ? 'You are respawning — hang tight.' : q.moveReason === 'move_limit' ? 'No movement left — make peace with the plaza.' : 'Waiting for the round…');
+    else if (q.hazards.length) msg = T('Danger close: a bigger void or an ember is near. Steer away!');
     else if (q.edible.length) {
       const gems = q.edible.filter(e => e.kind === 'prop' && e.mass >= 15);
-      msg = gems.length ? 'A gem is in reach — go gleam hunting!' : `${q.edible.length} things nearby are edible. Dimmer than you = dinner.`;
-    } else msg = 'Nothing edible right here. Drift toward open pavement and look for highlights.';
+      msg = gems.length ? T('A gem is in reach — go gleam hunting!') : T(q.edible.length === 1 ? '{n} thing nearby is edible. Dimmer than you = dinner.' : '{n} things nearby are edible. Dimmer than you = dinner.', { n: q.edible.length });
+    } else msg = T('Nothing edible right here. Drift toward open pavement and look for highlights.');
     this.ui.toast(msg, 4200);
     this.ui.announce(msg);
   }
@@ -722,7 +755,7 @@ class App {
         if (dx !== this.lastSent.dx || dy !== this.lastSent.dy || boost !== this.lastSent.boost) {
           const verdict = this.session.submitMove(dx, dy, boost);
           if (!verdict.ok && verdict.reason && verdict.reason !== 'not_active' && verdict.reason !== 'cannot_move') {
-            this.ui.announce(`Action rejected: ${verdict.reason}`);
+            this.ui.announce(T('Action rejected: {reason}', { reason: verdict.reason }));
           }
           this.lastSent = { dx, dy, boost };
         }
@@ -760,7 +793,7 @@ class App {
       el.style.display = p.visible ? '' : 'none';
       const z = window.UIScale?.value || 1; // .void-label is zoomed by --ui-scale
       el.style.left = `${p.x / z}px`; el.style.top = `${p.y / z}px`;
-      el.textContent = `${v.id === 0 ? '▶ ' : ''}${v.name} · ${Math.floor(v.mass)}`;
+      el.textContent = `${v.id === 0 ? '▶ ' : ''}${pname(v.name)} · ${Math.floor(v.mass)}`;
     });
   }
 }
@@ -784,7 +817,7 @@ class TutorialRun {
     if (!s) { this.app.ui.tutorialBanner(null); return; }
     this.count = 0;
     this.app.ui.tutorialBanner(s, () => this.advance(true));
-    this.app.ui.announce(s.text, true);
+    this.app.ui.announce(T(s.text), true);
     if (s.require.type === 'visit_markers') {
       const half = this.app.session.state.arena.half;
       this.markers = [];
@@ -800,7 +833,7 @@ class TutorialRun {
     if (this.index >= this.steps.length) {
       this.app.ui.tutorialBanner(null);
       this.app.renderer.setMarkers([]);
-      this.app.ui.toast('Lesson complete!');
+      this.app.ui.toast(T('Lesson complete!'));
       this.app.audio.event('lesson_complete');
       // end the lesson; the session loop detects the terminal state and
       // produces results (which records tutorial completion)
@@ -855,6 +888,6 @@ class TutorialRun {
 const app = new App();
 window.addEventListener('error', (e) => {
   console.error('fatal', e.error ?? e.message);
-  $('boot-status').textContent = `Something failed to load: ${e.message}`;
+  $('boot-status').textContent = T('Something failed to load: {error}', { error: e.message });
 });
 app.boot();

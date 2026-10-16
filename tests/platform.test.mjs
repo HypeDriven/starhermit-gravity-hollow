@@ -4,7 +4,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { connectPlatform, applyRemoteSettings } from '../src/platform.js';
-import { DEFAULT_SETTINGS } from '../src/session.js';
+import { DEFAULT_SETTINGS, mergeSaves } from '../src/session.js';
 
 // The package is ESM, so the UMD SDK is evaluated with a CommonJS-style module object.
 const SDK = (() => { const module = { exports: {} }; new Function('module', readFileSync(new URL('../starhermit-sdk.js', import.meta.url), 'utf8'))(module); return module.exports; })();
@@ -13,21 +13,31 @@ const TOKEN = 'h.' + b64u({ sub: 'void-12345678', game_scope: 'hollow-id', exp: 
 globalThis.document = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} };
 
 function harness(href, routes = {}) {
-  const calls = [], store = {}, url = new URL(href);
+  const calls = [], store = {}, etags = {}, url = new URL(href);
+  let version = 0;
   const win = { location: { hash: url.hash, search: url.search, pathname: url.pathname, origin: url.origin, hostname: url.hostname, href }, history: { replaceState: (a, b, u) => { win.replaced = u; } } };
   const fetch = async (path, init = {}) => {
     const method = init.method || 'GET'; calls.push({ path, method, body: init.body });
     if (path.includes('/cloud-saves/')) {
       const key = decodeURIComponent(path.split('/cloud-saves/')[1]);
-      if (key.endsWith('/info')) return new Response(JSON.stringify({ exists: !!store[key.slice(0, -5)] }), { status: 200 });
-      if (method === 'PUT') { store[key] = Buffer.from(JSON.parse(init.body).dataBase64, 'base64'); return new Response('{}', { status: 200 }); }
+      // Versioned like the platform: /info and PUT answer an etag; a conditional
+      // PUT (If-Match / If-None-Match: *) against another version is a 412.
+      if (key.endsWith('/info')) { const k = key.slice(0, -5); return new Response(JSON.stringify({ exists: !!store[k], ...(store[k] ? { etag: etags[k] } : {}) }), { status: 200 }); }
+      if (method === 'PUT') {
+        const h = new Headers(init.headers || {}), match = h.get('If-Match'), none = h.get('If-None-Match');
+        if ((match && match !== etags[key]) || (none === '*' && store[key])) return new Response(JSON.stringify({ error: 'precondition_failed', etag: etags[key] }), { status: 412 });
+        store[key] = Buffer.from(JSON.parse(init.body).dataBase64, 'base64'); etags[key] = `"v${++version}"`;
+        return new Response(JSON.stringify({ etag: etags[key] }), { status: 200 });
+      }
       return store[key] ? new Response(store[key], { status: 200 }) : new Response('', { status: 404 });
     }
     const hit = Object.entries(routes).find(([k]) => `${method} ${path}`.endsWith(k));
     return hit ? new Response(JSON.stringify(hit[1]), { status: 200 }) : new Response('', { status: 404 });
   };
   const sh = SDK.create({ window: win, fetch, setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); t.unref?.(); return t; } });
-  return { platform: connectPlatform(sh), sh, calls, store, win };
+  // Another device writing the slot: new bytes, new version.
+  const otherDevice = (key, bytes) => { store[key] = bytes; etags[key] = `"v${++version}"`; };
+  return { platform: connectPlatform(sh), sh, calls, store, win, otherDevice };
 }
 
 test('hosted: token read, nickname, game:<slug> save round-trip, settings + bindings sync', async () => {
@@ -61,6 +71,7 @@ test('hosted: token read, nickname, game:<slug> save round-trip, settings + bind
   assert.equal(h.calls.filter((c) => c.method === 'PATCH').length, 0, 'unchanged state is not patched');
   settings.effects = 0.2; settings.bindings.hint = ['KeyJ'];
   p.sync(settings);
+  await new Promise((r) => setTimeout(r, 0)); // control writes are queued (one at a time)
   const patch = h.calls.find((c) => c.method === 'PATCH');
   assert.equal(patch.path, '/api/v1/games/hollow-id/settings'); assert.equal(JSON.parse(patch.body).settings.effects, 0.2);
   const put = h.calls.find((c) => c.method === 'PUT' && c.path.endsWith('/controls'));
@@ -78,7 +89,35 @@ test('renewal refused notifies the game', () => {
 test('standalone: no platform, no requests; sign-in only on the platform host', () => {
   const local = harness('http://127.0.0.1:8080/');
   assert.equal(local.platform, null); assert.equal(local.sh.canSignIn(), false);
-  const host = harness('https://hollow-id.starhermit.com/');
+  // Sign-in is offered on the game's own <uuid>.starhermit.com host only.
+  const host = harness('https://0f8fad5b-d9cb-469f-a165-70867728950e.starhermit.com/');
   assert.equal(host.platform, null); assert.equal(host.sh.canSignIn(), true);
-  assert.equal(local.calls.length + host.calls.length, 0);
+  const named = harness('https://hollow-id.starhermit.com/');
+  assert.equal(named.sh.canSignIn(), false);
+  assert.equal(local.calls.length + host.calls.length + named.calls.length, 0);
+});
+
+test('a cloud save another device wrote first is re-read and handed to the game to merge', async () => {
+  const h = harness('https://hollow-id.starhermit.com/#game_token=' + TOKEN);
+  const p = h.platform;
+  assert.equal(await p.loadCloudSave(), null);
+  // The bytes the other device will write (made with the same SDK, then replayed).
+  const theirs = { journey: { 'journey-01': { stars: 3, best: 40 }, 'journey-02': { stars: 2, best: 70 } }, achievements: { first_void: { at: 5 } } };
+  p.scheduleSave(theirs);
+  assert.equal(await p.flushSave(), true);
+  const key = Object.keys(h.store)[0], theirBytes = h.store[key];
+  p.scheduleSave({ journey: { 'journey-01': { stars: 1, best: 50 } }, achievements: {} });
+  assert.equal(await p.flushSave(), true);
+  // The other device saves in between.
+  h.otherDevice(key, theirBytes);
+  const got = new Promise((resolve) => { p.onConflict = resolve; });
+  p.scheduleSave({ journey: { 'journey-01': { stars: 1, best: 60 } }, achievements: {} });
+  assert.equal(await p.flushSave(), false, 'the stale write is refused');
+  const doc = await got;
+  assert.deepEqual(doc.save, theirs);
+  const merged = mergeSaves({ journey: { 'journey-01': { stars: 1, best: 60 } }, achievements: {} }, doc.save);
+  assert.deepEqual(merged.journey, { 'journey-01': { stars: 3, best: 60 }, 'journey-02': { stars: 2, best: 70 } });
+  assert.deepEqual(merged.achievements, { first_void: { at: 5 } });
+  p.scheduleSave(merged);
+  assert.equal(await p.flushSave(), true, 'the merged save lands on the version just read');
 });
