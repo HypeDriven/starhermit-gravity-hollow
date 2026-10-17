@@ -8,7 +8,7 @@ import { PRESETS, CATEGORIES, presetTier, choosePreset } from './gfx.js';
 
 const STRINGS = {
   'en-US': {
-    graphics: 'Graphics', quality: 'Quality', auto: 'Auto (detected: {0})', renderScale: 'Render scale',
+    level: 'Level {0}', graphics: 'Graphics', quality: 'Quality', auto: 'Auto (detected: {0})', renderScale: 'Render scale',
     fromPreset: 'From preset ({0})', adaptive: 'Adaptive resolution', showFps: 'Show frame rate',
     postFailed: 'Post-processing is unavailable on this device; effects that need it are off.',
     presets: { low: 'Low', balanced: 'Balanced', high: 'High', ultra: 'Ultra' },
@@ -17,7 +17,7 @@ const STRINGS = {
     words: { noShadows: 'no shadows', shadows: 'shadows', ao: 'ambient occlusion', aoHigh: 'full ambient occlusion', bloom: 'bloom', noAa: 'no anti-aliasing', particles: 'particles' },
   },
   'es-419': {
-    graphics: 'Gráficos', quality: 'Calidad', auto: 'Automática (detectada: {0})', renderScale: 'Escala de renderizado',
+    level: 'Nivel {0}', graphics: 'Gráficos', quality: 'Calidad', auto: 'Automática (detectada: {0})', renderScale: 'Escala de renderizado',
     fromPreset: 'Del ajuste ({0})', adaptive: 'Resolución adaptable', showFps: 'Mostrar FPS',
     postFailed: 'El posprocesamiento no está disponible en este dispositivo; los efectos que lo requieren están desactivados.',
     presets: { low: 'Baja', balanced: 'Equilibrada', high: 'Alta', ultra: 'Ultra' },
@@ -26,7 +26,7 @@ const STRINGS = {
     words: { noShadows: 'sin sombras', shadows: 'sombras', ao: 'oclusión ambiental', aoHigh: 'oclusión ambiental completa', bloom: 'resplandor', noAa: 'sin antialiasing', particles: 'partículas' },
   },
   'de-DE': {
-    graphics: 'Grafik', quality: 'Qualität', auto: 'Automatisch (erkannt: {0})', renderScale: 'Renderskalierung',
+    level: 'Stufe {0}', graphics: 'Grafik', quality: 'Qualität', auto: 'Automatisch (erkannt: {0})', renderScale: 'Renderskalierung',
     fromPreset: 'Aus Voreinstellung ({0})', adaptive: 'Adaptive Auflösung', showFps: 'Bildrate anzeigen',
     postFailed: 'Nachbearbeitung ist auf diesem Gerät nicht verfügbar; Effekte, die sie benötigen, sind aus.',
     presets: { low: 'Niedrig', balanced: 'Ausgewogen', high: 'Hoch', ultra: 'Ultra' },
@@ -35,7 +35,7 @@ const STRINGS = {
     words: { noShadows: 'keine Schatten', shadows: 'Schatten', ao: 'Umgebungsverdeckung', aoHigh: 'volle Umgebungsverdeckung', bloom: 'Bloom', noAa: 'keine Kantenglättung', particles: 'Partikel' },
   },
   'fr-FR': {
-    graphics: 'Graphismes', quality: 'Qualité', auto: 'Auto (détectée : {0})', renderScale: 'Échelle de rendu',
+    level: 'Niveau {0}', graphics: 'Graphismes', quality: 'Qualité', auto: 'Auto (détectée : {0})', renderScale: 'Échelle de rendu',
     fromPreset: 'Selon le préréglage ({0})', adaptive: 'Résolution adaptative', showFps: 'Afficher les IPS',
     postFailed: 'Le post-traitement est indisponible sur cet appareil ; les effets qui en dépendent sont désactivés.',
     presets: { low: 'Basse', balanced: 'Équilibrée', high: 'Haute', ultra: 'Ultra' },
@@ -44,7 +44,7 @@ const STRINGS = {
     words: { noShadows: 'sans ombres', shadows: 'ombres', ao: 'occlusion ambiante', aoHigh: 'occlusion ambiante complète', bloom: 'flou lumineux', noAa: 'sans anticrénelage', particles: 'particules' },
   },
   'pt-BR': {
-    graphics: 'Gráficos', quality: 'Qualidade', auto: 'Automática (detectada: {0})', renderScale: 'Escala de renderização',
+    level: 'Nível {0}', graphics: 'Gráficos', quality: 'Qualidade', auto: 'Automática (detectada: {0})', renderScale: 'Escala de renderização',
     fromPreset: 'Da predefinição ({0})', adaptive: 'Resolução adaptativa', showFps: 'Mostrar taxa de quadros',
     postFailed: 'O pós-processamento não está disponível neste dispositivo; os efeitos que dependem dele estão desligados.',
     presets: { low: 'Baixa', balanced: 'Equilibrada', high: 'Alta', ultra: 'Ultra' },
@@ -53,7 +53,7 @@ const STRINGS = {
     words: { noShadows: 'sem sombras', shadows: 'sombras', ao: 'oclusão de ambiente', aoHigh: 'oclusão de ambiente completa', bloom: 'brilho', noAa: 'sem antisserrilhado', particles: 'partículas' },
   },
   'it-IT': {
-    graphics: 'Grafica', quality: 'Qualità', auto: 'Automatica (rilevata: {0})', renderScale: 'Scala di rendering',
+    level: 'Livello {0}', graphics: 'Grafica', quality: 'Qualità', auto: 'Automatica (rilevata: {0})', renderScale: 'Scala di rendering',
     fromPreset: 'Dal preset ({0})', adaptive: 'Risoluzione adattiva', showFps: 'Mostra frame rate',
     postFailed: 'La post-elaborazione non è disponibile su questo dispositivo; gli effetti che la richiedono sono disattivati.',
     presets: { low: 'Bassa', balanced: 'Bilanciata', high: 'Alta', ultra: 'Ultra' },
@@ -207,7 +207,7 @@ export function bindGraphicsPanel(host, opts) {
   };
   const refreshSummary = () => {
     const info = renderer.graphicsInfo(T.words);
-    summary.textContent = `${info.gpu} · ${info.summary}`;
+    summary.textContent = `${info.gpu} · ${T.level.replace('{0}', info.level ?? 0)} · ${info.summary}`;
     note.hidden = !info.postFailed;
   };
   renderer.onPostFailed = () => { note.hidden = false; };

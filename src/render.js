@@ -14,7 +14,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { THEMES } from './content.js';
-import { detectPreset, resolve, describe, SHADOW_MAP, PARTICLE_BUDGET } from './gfx.js';
+import { detectLevel, presetForLevel, resolve, describe, SHADOW_MAP, particleBudget } from './gfx.js';
 
 // Colour grade + vignette, applied after tone mapping (display-space in and out).
 const GradeShader = {
@@ -54,6 +54,15 @@ const CAM = {
   shakeAmp: 0.35, shakeDecay: 6,
 };
 
+// Run a post pass at a fraction of the frame (per-preset budget). EffectComposer sizes every pass to the
+// full frame in addPass/setSize, so the pass's own setSize is wrapped to apply the scale.
+function atScale(pass, k) {
+  if (!(k > 0 && k < 1)) return pass;
+  const setSize = pass.setSize.bind(pass);
+  pass.setSize = (w, h) => setSize(Math.max(1, Math.round(w * k)), Math.max(1, Math.round(h * k)));
+  return pass;
+}
+
 export class Renderer {
   constructor(canvas, settings) {
     this.canvas = canvas;
@@ -67,7 +76,11 @@ export class Renderer {
     this.three.toneMappingExposure = 1.18;
     this.three.shadowMap.type = THREE.PCFSoftShadowMap;
     this.gpu = gpuName(this.three);
-    this.detected = detectPreset(this.gpu, { mobile: isMobile() });
+    // StarHermit hardware level → Auto preset (SwiftShader = level 0 → Low; phones cap at Balanced).
+    const G = globalThis.StarHermitGpu;
+    const system = G ? G.detectSystem() : {};
+    this.level = detectLevel(this.gpu, { ...system, mobile: !!system.mobile || isMobile() });
+    this.detected = presetForLevel(this.level);
     this.scene = new THREE.Scene();
     // image-based lighting: a neutral studio room gives PBR materials reflections
     try {
@@ -83,7 +96,7 @@ export class Renderer {
     this.composer = null;
     this.postKey = null;
     this.postFailed = false;
-    this.q = resolve(settings.graphics, this.detected);
+    this.q = resolve(settings.graphics, this.detected, this.level);
     this.camera = new THREE.PerspectiveCamera(CAM.fov, 1, 1, 400);
     this.camTarget = new THREE.Vector3();
     this.camVel = new THREE.Vector3();
@@ -109,12 +122,40 @@ export class Renderer {
   }
 
   get detailed() { return this.q.detail === 'detailed'; }
+  /** Preset budget (js/gfx.js BUDGETS): material class, texture size, LOD, motes, sparks. */
+  get budget() { return this.q.budget; }
+  /** Clearcoated physical materials only on High/Ultra budgets with detail on. */
+  get physical() { return this.detailed && this.q.budget.material === 'physical'; }
+  /** Round-geometry segments scaled by the preset budget (at least 6). */
+  seg(n) { return Math.max(6, Math.round(n * this.q.budget.segments)); }
+
+  // Low budget: swap lit materials under `root` for Lambert twins (same colour, maps, emissive and glow
+  // data; no PBR lighting). Shared materials map to one twin.
+  applyMaterialClass(root) {
+    if (this.q.budget.material !== 'lambert') return;
+    const twins = this._lambert || (this._lambert = new Map());
+    const twin = (m) => {
+      if (!m || !(m.isMeshStandardMaterial)) return m;
+      if (!twins.has(m)) {
+        const l = new THREE.MeshLambertMaterial({
+          color: m.color, map: m.map, emissive: m.emissive, emissiveMap: m.emissiveMap, emissiveIntensity: m.emissiveIntensity,
+          transparent: m.transparent, opacity: m.opacity, flatShading: m.flatShading, side: m.side,
+        });
+        l.userData = { ...m.userData };
+        twins.set(m, l);
+        m.dispose();
+      }
+      return twins.get(m);
+    };
+    root.traverse((o) => { if (o.isMesh && o.material && !Array.isArray(o.material)) o.material = twin(o.material); });
+  }
   get moving() { return !this.settings.reducedMotion; }
 
   // ------------------------------------------------------------- stage
 
   loadStage(stage, snapshot) {
     this.clearScene();
+    this._lambert = null; // Lambert twins belong to the scene being replaced
     this.stage = stage;
     this.theme = THEMES[stage.theme] ?? THEMES.verdant;
     const t = this.theme;
@@ -150,6 +191,7 @@ export class Renderer {
     this.buildAtmosphere(stage);
     this.voidViews.clear();
     if (snapshot) this.syncSnapshot(snapshot, snapshot, 0, []);
+    this.applyMaterialClass(this.scene);
     this.applyGlow();
     this.frameCamera(stage.arenaHalf, true);
   }
@@ -159,10 +201,10 @@ export class Renderer {
     const detailed = this.detailed;
     const mat = detailed
       ? (() => {
-        const { map, bump } = groundTextureDetailed(this.theme, half);
+        const { map, bump } = groundTextureDetailed(this.theme, half, this.budget.ground);
         return new THREE.MeshStandardMaterial({ map, bumpMap: bump, bumpScale: 1.4, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.08 });
       })()
-      : new THREE.MeshStandardMaterial({ map: groundTexture(this.theme, half), roughness: 0.95, metalness: 0.0 });
+      : new THREE.MeshStandardMaterial({ map: groundTexture(this.theme, half, Math.min(512, this.budget.ground)), roughness: 0.95, metalness: 0.0 });
     const geo = new THREE.PlaneGeometry(half * 2 + 8, half * 2 + 8);
     const ground = new THREE.Mesh(geo, mat);
     ground.rotation.x = -Math.PI / 2;
@@ -198,27 +240,27 @@ export class Renderer {
     for (const o of stage.obstacles) {
       let mesh;
       if (o.kind === 'fountain') {
-        const g = new THREE.CylinderGeometry(o.hw, o.hw * 1.1, 1.6, detailed ? 48 : 24);
+        const g = new THREE.CylinderGeometry(o.hw, o.hw * 1.1, 1.6, this.seg(detailed ? 48 : 24));
         mesh = new THREE.Mesh(g, std({ color: t.obstacleTop, roughness: 0.5, metalness: 0.15 }));
-        const waterMat = detailed
+        const waterMat = this.physical
           ? new THREE.MeshPhysicalMaterial({ color: t.accent, roughness: 0.08, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.05,
             emissive: t.accent, emissiveIntensity: 0.3, envMapIntensity: 1.3 })
           : new THREE.MeshStandardMaterial({ color: t.accent, roughness: 0.15, metalness: 0.4, emissive: t.accent, emissiveIntensity: 0.25 });
-        const water = new THREE.Mesh(new THREE.CylinderGeometry(o.hw * 0.78, o.hw * 0.78, 0.3, detailed ? 48 : 24), waterMat);
+        const water = new THREE.Mesh(new THREE.CylinderGeometry(o.hw * 0.78, o.hw * 0.78, 0.3, this.seg(detailed ? 48 : 24)), waterMat);
         water.position.set(o.x, 1.05, o.y);
         this.scene.add(water);
         if (detailed) {
           // stone lip + central spout column
-          const lip = new THREE.Mesh(new THREE.TorusGeometry(o.hw * 0.92, 0.22, 10, 48), std({ color: t.obstacleTop, roughness: 0.45 }));
+          const lip = new THREE.Mesh(new THREE.TorusGeometry(o.hw * 0.92, 0.22, this.seg(10), this.seg(48)), std({ color: t.obstacleTop, roughness: 0.45 }));
           lip.rotation.x = Math.PI / 2;
           lip.position.set(o.x, 1.42, o.y);
           lip.castShadow = true;
           this.scene.add(lip);
-          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 2.4, 16), std({ color: t.obstacleTop, roughness: 0.4 }));
+          const col = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 2.4, this.seg(16)), std({ color: t.obstacleTop, roughness: 0.4 }));
           col.position.set(o.x, 2.1, o.y);
           col.castShadow = true;
           this.scene.add(col);
-          const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 0.4, 0.45, 20), std({ color: t.obstacleTop, roughness: 0.4 }));
+          const bowl = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 0.4, 0.45, this.seg(20)), std({ color: t.obstacleTop, roughness: 0.4 }));
           bowl.position.set(o.x, 3.3, o.y);
           bowl.castShadow = true;
           this.scene.add(bowl);
@@ -276,7 +318,7 @@ export class Renderer {
           emissive: kind === 'ember' ? color : (kind === 'gem' ? color : 0x000000),
           emissiveIntensity: kind === 'ember' ? 0.7 : kind === 'gem' ? 0.35 : 0,
         });
-      } else if (kind === 'gem') {
+      } else if (kind === 'gem' && this.physical) {
         // cut-glass gem: clear-coated, env reflections, emissive core that blooms
         mat = new THREE.MeshPhysicalMaterial({ color, roughness: 0.12, metalness: 0.25, clearcoat: 1, clearcoatRoughness: 0.04,
           emissive: color, emissiveIntensity: 0.45, envMapIntensity: 1.1, flatShading: true });
@@ -285,9 +327,15 @@ export class Renderer {
         // hot core: emissive above 1 so bloom picks embers out as the hazard
         mat = new THREE.MeshStandardMaterial({ color, roughness: 0.35, emissive: color, emissiveIntensity: 1.5, flatShading: true, envMapIntensity: 0.4 });
         mat.userData.glow = [1.5, 3.5];
-      } else {
+      } else if (this.physical) {
         mat = new THREE.MeshPhysicalMaterial({ color, roughness: d.rough, metalness: 0.02, clearcoat: 0.2, clearcoatRoughness: 0.5,
           flatShading: true, envMapIntensity: 0.4 });
+      } else {
+        // Balanced budget: the detailed look without clearcoat (MeshStandardMaterial).
+        mat = new THREE.MeshStandardMaterial({ color, roughness: kind === 'gem' ? 0.12 : d.rough, metalness: kind === 'gem' ? 0.25 : 0.02,
+          emissive: kind === 'gem' ? color : 0x000000, emissiveIntensity: kind === 'gem' ? 0.45 : 0, flatShading: true,
+          envMapIntensity: kind === 'gem' ? 1.1 : 0.4 });
+        if (kind === 'gem') mat.userData.glow = [0.45, 0.8];
       }
       const im = new THREE.InstancedMesh(d.geo, mat, max);
       im.count = 0;
@@ -302,7 +350,7 @@ export class Renderer {
   }
 
   buildParticles() {
-    const max = Math.max(64, PARTICLE_BUDGET[this.q.particles]);
+    const max = Math.max(64, particleBudget(this.q.particles, this.budget));
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(max * 3), 3));
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(max * 3), 3));
@@ -320,7 +368,7 @@ export class Renderer {
   // Drifting motes of light over the plaza (atmosphere). One Points draw.
   buildAtmosphere(stage) {
     const half = stage.arenaHalf + 4;
-    const n = 180;
+    const n = this.budget.motes; // preset budget (level-scaled)
     const pos = new Float32Array(n * 3);
     const seed = [];
     let s = 1 + this.theme.id.length * 131;
@@ -376,11 +424,12 @@ export class Renderer {
     const group = new THREE.Group();
     const isMe = v.id === 0;
     const detailed = this.detailed;
-    const bodyMat = new THREE.MeshPhysicalMaterial({
+    // Clearcoated hollow on High/Ultra; plain standard material on Balanced/Low budgets (Lambert on Low).
+    const bodyMat = this.q.budget.material === 'physical' ? new THREE.MeshPhysicalMaterial({
       color: 0x0a0a12, roughness: detailed ? 0.18 : 0.25, metalness: 0.1,
       clearcoat: detailed ? 1 : 0.8, clearcoatRoughness: detailed ? 0.12 : 0.3, envMapIntensity: 0.3,
-    });
-    const body = new THREE.Mesh(new THREE.SphereGeometry(1, detailed ? 40 : 28, detailed ? 28 : 20), bodyMat);
+    }) : new THREE.MeshStandardMaterial({ color: 0x0a0a12, roughness: 0.22, metalness: 0.1, envMapIntensity: 0.3 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(1, this.seg(detailed ? 40 : 28), this.seg(detailed ? 28 : 20)), bodyMat);
     body.scale.y = 0.72;
     body.castShadow = true;
     group.add(body);
@@ -389,7 +438,7 @@ export class Renderer {
     const ringMat = new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: isMe ? 0.95 : 0.7, side: THREE.DoubleSide });
     // the player's ring renders un-tone-mapped so it stays pure white and gets a bloom halo
     if (isMe && detailed) { ringMat.toneMapped = false; ringMat.userData.glowColor = [1, 2.4]; }
-    const ring = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.22, 48), ringMat);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.22, this.seg(48)), ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.06;
     group.add(ring);
@@ -410,7 +459,7 @@ export class Renderer {
       blob.renderOrder = -1;
       group.add(blob);
       // accretion swirl: a faint spiral of pulled-in dust circling the rim
-      swirl = new THREE.Mesh(new THREE.RingGeometry(1.15, 2.0, 48, 1),
+      swirl = new THREE.Mesh(new THREE.RingGeometry(1.15, 2.0, this.seg(48), 1),
         new THREE.MeshBasicMaterial({ map: swirlTexture(), color: ringColor, transparent: true, opacity: isMe ? 0.32 : 0.26,
           depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide }));
       swirl.rotation.x = -Math.PI / 2;
@@ -420,6 +469,7 @@ export class Renderer {
     }
     this.scene.add(group);
     if (ringMat.userData.glowColor) ringMat.color.setScalar(ringMat.userData.glowColor[this.q.bloom === 'on' && !this.postFailed ? 1 : 0]);
+    this.applyMaterialClass(group);
     return { group, body, ring, glow, swirl, blob, trailAcc: 0 };
   }
 
@@ -480,7 +530,7 @@ export class Renderer {
       const protecting = v.protectTicks > 0 && v.alive;
       view.ring.material.opacity = (v.id === 0 ? 0.95 : 0.7) * (protecting ? (0.5 + 0.5 * Math.sin(t * 10)) : 1);
       // boost trail
-      if (v.input.boost && v.alive && PARTICLE_BUDGET[this.q.particles] > 0 && this.moving) {
+      if (v.input.boost && v.alive && particleBudget(this.q.particles, this.budget) > 0 && this.moving) {
         view.trailAcc++;
         if (view.trailAcc % 3 === 0) this.emit(x, 0.4, y, 0x9fd8ff, 1, 0.5, 1.2);
       }
@@ -589,7 +639,7 @@ export class Renderer {
 
   emit(x, y, z, color, count, speed, life) {
     const P = this.particles;
-    if (!P || PARTICLE_BUDGET[this.q.particles] === 0 || !this.moving) return;
+    if (!P || particleBudget(this.q.particles, this.budget) === 0 || !this.moving) return;
     const c = new THREE.Color(color);
     for (let i = 0; i < count; i++) {
       if (P.pool.length >= P.max) P.pool.shift();
@@ -670,7 +720,7 @@ export class Renderer {
   /** Apply graphics settings (gfx.js shape) live: shadows, post chain, scale, detail. */
   setGraphics(saved) {
     const prev = this.q;
-    const g = resolve(saved, this.detected);
+    const g = resolve(saved, this.detected, this.level);
     this.q = g;
     const size = SHADOW_MAP[g.shadows];
     const shadowsChanged = this.three.shadowMap.enabled !== size > 0;
@@ -685,7 +735,11 @@ export class Renderer {
     }
     // Materials compile shadow sampling in or out: recompile on toggle.
     if (shadowsChanged) this.scene.traverse((o) => { if (o.material) for (const m of [].concat(o.material)) m.needsUpdate = true; });
-    const rebuildStage = prev && (prev.detail !== g.detail || prev.particles !== g.particles);
+    const pb = prev?.budget || {}, b = g.budget;
+    const assets = pb.material !== b.material || pb.ground !== b.ground || pb.segments !== b.segments || pb.motes !== b.motes || pb.sparks !== b.sparks;
+    const rebuildStage = prev && (prev.detail !== g.detail || prev.particles !== g.particles || assets);
+    // Frosted backdrop blur behind menu screens only where the budget allows it (High/Ultra).
+    document.body.classList.toggle('gfx-hud-blur', !!b.hudBlur);
     if (rebuildStage && this.stage) this.loadStage(this.stage, this.currSnapshot);
     this.applyAtmosphere();
     this.applyGlow();
@@ -704,6 +758,7 @@ export class Renderer {
     const px = [Math.round(this.size[0] * this.pixelRatio), Math.round(this.size[1] * this.pixelRatio)];
     return {
       gpu: this.gpu || 'unknown GPU',
+      level: this.level,
       detected: this.detected,
       resolved: this.q,
       summary: describe(this.q, px, words),
@@ -747,7 +802,7 @@ export class Renderer {
       composer.setSize(w, h);
       composer.addPass(new RenderPass(this.scene, this.camera));
       if (g.ao !== 'off') {
-        const ao = new GTAOPass(this.scene, this.camera, w * pr, h * pr);
+        const ao = atScale(new GTAOPass(this.scene, this.camera, w * pr, h * pr), g.budget.aoRes);
         ao.output = GTAOPass.OUTPUT.Default;
         ao.blendIntensity = 0.75;
         ao.updateGtaoMaterial({ radius: 1.6, distanceExponent: 1.5, thickness: 2.0, scale: 1.0, samples: g.ao === 'high' ? 16 : 8 });
@@ -755,7 +810,7 @@ export class Renderer {
         composer.addPass(ao);
       }
       // High threshold: only emissive embers/gems, the player's ring and highlights bloom.
-      if (g.bloom === 'on') composer.addPass(new UnrealBloomPass(new THREE.Vector2(w, h), 0.5, 0.4, BLOOM_THRESHOLD));
+      if (g.bloom === 'on') composer.addPass(atScale(new UnrealBloomPass(new THREE.Vector2(w, h), 0.5, 0.4, BLOOM_THRESHOLD), g.budget.bloomRes));
       composer.addPass(new OutputPass()); // tone mapping + sRGB
       if (g.grade === 'on') composer.addPass(new ShaderPass(GradeShader));
       if (g.antialias === 'smaa') composer.addPass(new SMAAPass(w * pr, h * pr));
@@ -921,11 +976,13 @@ function hashColor(id, palette = 'default') {
 }
 
 // procedural pavement texture on a canvas — original, deterministic
-function groundTexture(theme, half) {
+// Drawn in 512-px units at the preset budget's size `n`.
+function groundTexture(theme, half, n = 512) {
   const S = 512;
   const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
+  cv.width = cv.height = n;
   const ctx = cv.getContext('2d');
+  ctx.scale(n / S, n / S);
   const c = new THREE.Color(theme.ground);
   ctx.fillStyle = `#${c.getHexString()}`;
   ctx.fillRect(0, 0, S, S);
@@ -957,11 +1014,15 @@ function groundTexture(theme, half) {
 
 // Detailed pavement: per-slab tone variation, mortar joints, speckle grit and
 // moss in the joints, plus a matching bump map (slabs raised, joints sunk).
-function groundTextureDetailed(theme, half) {
+// Drawn in 1024-px units at the preset budget's size `n` (colour and bump maps).
+function groundTextureDetailed(theme, half, n = 1024) {
   const S = 1024;
   const cells = 8;
   const step = S / cells;
-  const mk = () => { const c = document.createElement('canvas'); c.width = c.height = S; return [c, c.getContext('2d')]; };
+  const mk = () => {
+    const c = document.createElement('canvas'); c.width = c.height = n;
+    const x = c.getContext('2d'); x.scale(n / S, n / S); return [c, x];
+  };
   const [cv, ctx] = mk();
   const [bv, btx] = mk();
   const base = new THREE.Color(theme.ground);

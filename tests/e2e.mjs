@@ -145,6 +145,9 @@ try {
         if (a.body !== 'low' || a.canvas !== 'low' || a.post !== 'off') throw new Error(`auto should resolve to low: ${JSON.stringify(a)}`);
         const autoLabel = await page.locator('#set-quality option[value="auto"]').textContent();
         if (!/Low/.test(autoLabel)) throw new Error(`auto label lacks detected tier: "${autoLabel}"`);
+        // The summary names the StarHermit hardware level (software GPU = level 0).
+        const sum = await page.textContent('#gfx-summary');
+        if (!/Level 0/.test(sum)) throw new Error(`summary lacks the hardware level: "${sum}"`);
         await page.locator('#gfx-section').scrollIntoViewIfNeeded();
         await page.selectOption('#set-quality', 'ultra');
         await page.waitForTimeout(1500); // render a few Ultra frames (console must stay clean)
