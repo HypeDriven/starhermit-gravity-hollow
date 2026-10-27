@@ -116,7 +116,8 @@ export function back(): void {
 let idle: Stage | null = null;
 function idleStage(): Stage { return (idle ??= practiceStage("standard")); }
 
-export function showModes(list: ModeList): void { click(); app.modeList = list; show("modes", null); }
+const FIRST_CARD: Record<ModeList, string> = { modes: "mode-learn", practice: "practice-relaxed", challenges: "challenge-sprint", hosted: "hosted-quick" };
+export function showModes(list: ModeList): void { click(); app.modeList = list; show("modes", FIRST_CARD[list]); }
 export function showJourney(): void { click(); show("journey", null); }
 export function showProfile(): void { click(); show("profile", null); }
 export function openSetup(stage: Stage): void {

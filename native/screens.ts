@@ -227,7 +227,7 @@ function titleScreen(L: Layout): void {
     if (!platform.signedIn()) plat.push({ id: "btn-signin", text: t.signIn, style: ["btn", "btn-ghost"], act: signIn });
     if (platform.inviteLink()) plat.push({ id: "btn-invite", text: t.invite, style: ["btn", "btn-ghost"], act: copyInvite });
     if (plat.length) flow("title-platform", plat, w, "center", 20);
-    para(syncText(), w, "small", "sync-status", true);
+    ui.column("sync-col", () => para(syncText(), w, "small", "sync-status", true), { width: w, align: "center" });
   });
 }
 function syncText(): string {
@@ -288,9 +288,9 @@ function modesScreen(w: number): void {
         { id: "mode-learn", name: T("Learn"), desc: T("Five short lessons. One rule at a time."), badge: learnDone() ? T("complete") : T("start here"), act: () => startLearn(nextLearnIndex()) },
         { id: "mode-journey", name: T("Journey"), desc: T("40 authored stages with mastery tests."), act: () => show("journey", null) },
         { id: "mode-daily", name: T("Daily Hollow"), desc: T("One shared seed per UTC day. Everyone gets the same plaza."), badge: T("ranked"), act: openDaily },
-        { id: "mode-practice", name: T("Practice"), desc: T("Relaxed play with undo. Never rated."), act: () => { app.modeList = "practice"; show("modes", null); } },
-        { id: "mode-challenges", name: T("Challenges"), desc: T("Move limits, no boost, cramped courts…"), act: () => { app.modeList = "challenges"; show("modes", null); } },
-        { id: "mode-hosted", name: T("Hosted Play"), desc: T("Local lobby with AI seats. Realtime rooms are planned for a later build."), badge: T("local lobby"), act: () => { app.modeList = "hosted"; show("modes", null); } },
+        { id: "mode-practice", name: T("Practice"), desc: T("Relaxed play with undo. Never rated."), act: () => showModes("practice") },
+        { id: "mode-challenges", name: T("Challenges"), desc: T("Move limits, no boost, cramped courts…"), act: () => showModes("challenges") },
+        { id: "mode-hosted", name: T("Hosted Play"), desc: T("Local lobby with AI seats. Realtime rooms are planned for a later build."), badge: T("local lobby"), act: () => showModes("hosted") },
       ];
   }
   cardGrid("mode-cards", cards, w);
