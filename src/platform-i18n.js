@@ -1,7 +1,6 @@
 // Gravity Hollow — localized strings for the StarHermit account surface (sign-in,
 // invite link, sign-out notice, leaderboard line) in the game's language
-// (src/i18n/i18n.js: the Language setting through sh-language.js).
-import { pickLocale } from './gfx-ui.js';
+// (native/i18n.ts: the runtime's interface language).
 import { lang as gameLang } from './i18n/t.js';
 
 const EN = {
@@ -78,5 +77,5 @@ export const PLATFORM_LOCALES = Object.keys(STRINGS);
 
 /** Strings for the account surface in the game's locale (en-US fallback). */
 export function platformStrings(lang = gameLang()) {
-  return { ...EN, ...(STRINGS[pickLocale(Array.isArray(lang) ? lang : [lang])] || {}) };
+  return { ...EN, ...(STRINGS[lang] || {}) };
 }

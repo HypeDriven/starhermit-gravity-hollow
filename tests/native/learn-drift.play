@@ -1,0 +1,25 @@
+# Learn › lesson 1 (Drift): holding a direction completes the first step, the second (glowing
+# markers) is skipped from the banner, and the lesson ends with its results; Next opens lesson 2.
+until 300 Gravity Hollow
+frames 150
+click =Play
+until 60 Choose a mode
+frames 10
+click Learn
+until 120 You are a hollow
+frames 20
+save lesson-1
+hold ArrowRight
+frames 120
+release ArrowRight
+until 120 Drift to each glowing marker
+frames 10
+save markers
+click =Skip lesson
+until 300 Lesson complete!
+frames 30
+save lesson-results
+click =Next
+until 120 Pale motes are smaller than you
+frames 10
+save lesson-2

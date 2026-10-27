@@ -1,0 +1,40 @@
+# Journey › Stage 1 from the map (no rivals, 105 s): steered by keys in a loop around the plaza to
+# the results; Next opens the next uncleared stage's setup card.
+until 300 Gravity Hollow
+frames 150
+click =Journey
+until 60 One new idea at a time
+frames 10
+save journey
+click =Stage 1
+until 60 Objectives
+frames 10
+click =Start
+until 120 Stage 1
+frames 100
+save stage-1
+hold KeyD
+frames 500
+release KeyD
+hold KeyS
+frames 300
+release KeyS
+hold KeyA
+frames 700
+release KeyA
+hold KeyW
+frames 600
+release KeyW
+hold KeyD
+frames 500
+release KeyD
+hold KeyS
+frames 300
+release KeyS
+until 3000 Your score breakdown
+frames 10
+save stage-1-results
+click =Next
+until 60 Objectives
+frames 10
+save next-setup

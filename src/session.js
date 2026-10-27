@@ -1,16 +1,17 @@
-// Gravity Hollow — session layer: fixed-step simulation loop with interpolation
-// alpha, validated command submission, undo (practice), replay envelopes,
-// local persistence, achievements, and progression. The session owns the rules
-// state; nothing else mutates it.
+// Gravity Hollow — session layer: validated command submission, undo
+// (practice), replay envelopes, local persistence, achievements, and
+// progression. The session owns the rules state; nothing else mutates it. The
+// host (native/main.ts) drives it: one tickOnce() per 30 Hz fixed step of the
+// StarHermit runtime while the match runs, pause() / resume() around the pause
+// menu and a hidden window. Documents live in `localStorage`, which the host
+// provides (native/platform.ts: the engine save and device storage).
 
 import * as Rules from './rules.js';
 import { hashString } from './rng.js';
-import { migrateQuality } from './gfx.js';
 import { T } from './i18n/t.js';
 
 export const BUILD_VERSION = '1.0.0';
 const SAVE_KEY = 'gravity-hollow:save:v1';
-const SETTINGS_KEY = 'gravity-hollow:settings:v1';
 const REPLAY_KEY = 'gravity-hollow:replays:v1';
 
 // ------------------------------------------------------------ persistence
@@ -24,8 +25,10 @@ function loadJson(key, fallback) {
     return fallback; // checksum mismatch — treat as absent, never crash
   } catch { return fallback; }
 }
+/** The stored form of a document: { v, data, checksum } as JSON (loadJson checks the checksum). */
+export function envelopeJson(data) { return JSON.stringify({ v: 1, data, checksum: checksum(data) }); }
 function saveJson(key, data) {
-  try { localStorage.setItem(key, JSON.stringify({ v: 1, data, checksum: checksum(data) })); } catch { /* storage full/blocked */ }
+  try { localStorage.setItem(key, envelopeJson(data)); } catch { /* storage full/blocked */ }
 }
 function checksum(data) { return hashString(JSON.stringify(data)).toString(16); }
 
@@ -75,28 +78,20 @@ export function mergeSaves(local, remote) {
   return out;
 }
 
-export const DEFAULT_SETTINGS = {
-  music: 0.7, effects: 0.9, ambience: 0.5, voice: 0.8, muted: false,
-  graphics: {},             // gfx.js settings: { preset: 'auto'|low|balanced|high|ultra, render_scale, adaptive, show_fps, <category> }
-  reducedMotion: false, highContrast: false, largeText: false,
-  palette: 'default',       // default | deuteranopia | protanopia | tritanopia
-  leftHanded: false, holdBoost: true, timingAssist: false, haptics: true,
-  cameraSway: true, captions: true,
-  bindings: { up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], boost: ['ShiftLeft', 'ShiftRight', 'Space'], pause: ['Escape', 'KeyP'], undo: ['KeyZ'], hint: ['KeyH'], camera: ['KeyC'] },
-};
-export function loadSettings() {
-  const s = loadJson(SETTINGS_KEY, null);
-  if (!s) return { ...DEFAULT_SETTINGS, graphics: {} };
-  // pre-Graphics-panel saves stored a single `quality` tier
-  const graphics = s.graphics && typeof s.graphics === 'object' ? { ...s.graphics } : migrateQuality(s.quality);
-  const out = { ...DEFAULT_SETTINGS, ...s, graphics, bindings: { ...DEFAULT_SETTINGS.bindings, ...(s.bindings ?? {}) } };
-  delete out.quality;
-  return out;
-}
-export function persistSettings(settings) { saveJson(SETTINGS_KEY, settings); }
-
 // ----------------------------------------------------------- achievements
 // Small static set; stable lowercase keys; idempotent unlocks.
+
+/**
+ * A save document from anywhere — this build's engine save (the document
+ * itself) or the browser build's cloud slot ({ v: 1, save, savedAt }, the
+ * StarHermit JS SDK's saveJSON) — over the defaults, or null when it is not one.
+ */
+export function parseSaveDoc(raw, defaults) {
+  if (!raw || typeof raw !== 'object') return null;
+  const doc = raw.save && typeof raw.save === 'object' ? raw.save : raw;
+  if (!doc.journey || typeof doc.journey !== 'object' || !doc.achievements || typeof doc.achievements !== 'object') return null;
+  return { ...defaults, ...doc };
+}
 
 export const ACHIEVEMENTS = {
   first_void:      { name: 'First Hollow', desc: 'Finish your first match.' },
@@ -116,16 +111,13 @@ export function persistReplays(r) { saveJson(REPLAY_KEY, r.slice(-8)); }
 // --------------------------------------------------------------- session
 
 export class Session {
-  // stage: content object; hooks: { onEvents(events), onPhase(phase, reason), onTick(state, alpha) }
+  // stage: content object; hooks: { onEvents(events, state), onPhase(phase, reason) }
   constructor(stage, opts = {}) {
     this.stage = stage;
     this.hooks = opts.hooks ?? {};
     this.state = Rules.createMatch({ ...stage, playerName: opts.playerName ?? 'You' });
     this.paused = false;
     this.pauseReason = null;
-    this.acc = 0;
-    this.lastTime = null;
-    this.raf = null;
     this.cmdSeq = 0;
     this.replay = {
       schema: 1, build: BUILD_VERSION, contentVersion: stage.version,
@@ -139,49 +131,11 @@ export class Session {
     this.solo = opts.solo !== false;
     this._tickCounter = 0;
     this._ended = false;
-    this._bgPaused = false;
-    this._visibilityHandler = () => {
-      if (document.hidden) {
-        if (this.solo && this.state.phase === 'active' && !this.paused) {
-          this.paused = true; this.pauseReason = 'backgrounded'; this._bgPaused = true;
-          this.hooks.onPhase?.('paused', 'backgrounded');
-        }
-      } else if (this._bgPaused) {
-        // returning client gets a concise "while you were away" summary
-        this._bgPaused = false;
-        this.hooks.onPhase?.('resume-available', this.awaySummary());
-      }
-    };
-    document.addEventListener('visibilitychange', this._visibilityHandler);
   }
 
   awaySummary() {
     const me = this.state.voids[0];
     return T('Paused while away. Mass {mass}, {props} props in the plaza.', { mass: Math.floor(me.mass), props: this.state.props.length });
-  }
-
-  start() {
-    this.lastTime = null;
-    const loop = (t) => {
-      this.raf = requestAnimationFrame(loop);
-      if (this.lastTime == null) { this.lastTime = t; return; }
-      let dt = (t - this.lastTime) / 1000;
-      this.lastTime = t;
-      if (dt > 0.25) dt = 0.25;              // tab-back clamp
-      if (!this.paused && !Rules.isTerminal(this.state)) {
-        this.acc += dt;
-        const stepDt = Rules.DT;
-        let guard = 0;
-        while (this.acc >= stepDt && guard++ < 8) {
-          this.acc -= stepDt;
-          this.tickOnce();
-        }
-        if (guard >= 8) this.acc = 0;         // spiral-of-death guard
-      }
-      const alpha = Math.min(1, this.acc / Rules.DT);
-      this.hooks.onFrame?.(this.state, alpha);
-    };
-    this.raf = requestAnimationFrame(loop);
   }
 
   tickOnce() {
@@ -242,7 +196,7 @@ export class Session {
     this.hooks.onPhase?.('paused', reason);
   }
   resume() {
-    this.paused = false; this.pauseReason = null; this.lastTime = null;
+    this.paused = false; this.pauseReason = null;
     this.hooks.onPhase?.('resumed', null);
   }
 
@@ -262,10 +216,7 @@ export class Session {
     };
   }
 
-  destroy() {
-    if (this.raf) cancelAnimationFrame(this.raf);
-    document.removeEventListener('visibilitychange', this._visibilityHandler);
-  }
+  destroy() { this.paused = true; }
 }
 
 // Verify a replay envelope by re-simulating. Used by tests and the results screen.

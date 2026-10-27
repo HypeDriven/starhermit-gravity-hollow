@@ -1,0 +1,48 @@
+# Challenges › Sprint Hollow (45 s, ranked): steered by keys, boosting now and then, to the results
+# (standings, score breakdown, the replay check), then Retry starts the countdown again.
+until 300 Gravity Hollow
+frames 150
+click =Play
+until 60 Choose a mode
+frames 10
+click Challenges
+until 60 Make every route count
+frames 10
+click Sprint Hollow
+until 60 Objectives
+frames 10
+click =Start
+until 120 Sprint Hollow
+frames 200
+hold KeyD
+frames 300
+hold ShiftLeft
+frames 40
+release ShiftLeft
+release KeyD
+hold KeyS
+frames 300
+release KeyS
+hold KeyA
+frames 400
+release KeyA
+hold KeyW
+frames 400
+release KeyW
+hold KeyD
+hold KeyS
+frames 400
+release KeyD
+release KeyS
+save sprint-late
+until 3000 Your score breakdown
+frames 10
+save results
+until 3000 Replay verified
+frames 10
+save results-verified
+click =Retry
+frames 10
+until 120 Sprint Hollow
+frames 30
+save retry

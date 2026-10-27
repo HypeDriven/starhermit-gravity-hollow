@@ -1,0 +1,65 @@
+# The title's other doors: Profile (stats, guest name field, achievements), Settings (game options,
+# the runtime Options), How to play, the Daily Hollow setup card, Practice with Undo and Hint in a match.
+until 300 Gravity Hollow
+frames 150
+click =Profile
+until 60 Achievements
+frames 10
+save profile
+click =Back
+until 60 Gravity Hollow
+frames 10
+click =Settings
+until 60 Captions for audio cues
+frames 10
+save settings
+click =Hold-to-boost (off = toggle)
+frames 10
+click =Done
+until 60 Gravity Hollow
+frames 10
+click =How to play
+until 60 Rank by mass collected
+frames 10
+save help
+click =Close
+until 60 Gravity Hollow
+frames 10
+click =Daily Hollow
+until 60 Objectives
+frames 10
+save daily
+click =Back
+until 60 Gravity Hollow
+frames 10
+click =Play
+until 60 Choose a mode
+frames 10
+click Practice
+until 60 Just drift and eat
+frames 10
+click Practice — Relaxed
+until 60 Objectives
+frames 10
+click =Start
+until 120 Practice — Relaxed
+frames 120
+hold KeyW
+frames 60
+release KeyW
+frames 5
+key KeyZ 1
+until 60 Undone
+frames 5
+key KeyH 1
+frames 20
+save practice-hint
+click =Boost (hold)
+frames 30
+save boost-toggle
+key Escape 1
+until 60 Resume
+frames 10
+click =Leave match
+until 60 Gravity Hollow
+frames 10

@@ -1,63 +1,47 @@
-// Localization coverage: every English key the UI shows — index.html markup,
-// prose literals the screens, toasts, captions and statuses pass as text,
-// T('…') / N('…') keys, and content shown through T(variable) (challenges,
-// lessons, achievements) — is translated in every locale (en-GB → en-US,
-// es-ES → es-419, fr-CA → fr-FR inherit) with intact placeholders; no prose
-// template literal bypasses T(); the language follows sh-language.js and
-// switches live.
-import { test } from 'node:test';
+// Every player-facing string exists in all nine locales (node --test): the five full
+// tables (es-419, de-DE, fr-FR, pt-BR, it-IT) carry every key with the same
+// placeholders; en-GB, es-ES and fr-CA list only their differences; no table keeps keys
+// that are no longer used; the account strings (src/platform-i18n.js) cover every locale.
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { loadTables, codeKeys, proseLiterals, proseTemplates, markupKeys, audit, bootI18n, LOCALES } from './i18n-common.mjs';
-import { challenges, tutorials } from '../src/content.js';
-import { ACHIEVEMENTS } from '../src/session.js';
+import { ALL, loadTables } from './i18n-keys.mjs';
+import { platformStrings, PLATFORM_LOCALES } from '../src/platform-i18n.js';
 
-const ROOT = new URL('../', import.meta.url);
-const read = (p) => readFileSync(new URL(p, ROOT), 'utf8');
-const FILES = ['src/i18n/strings.js', 'src/i18n/strings-content.js'];
-const UI = ['src/ui.js', 'src/main.js'];
-const CODE = [...UI, 'src/audio.js', 'src/session.js', 'src/platform.js'];
+const FULL = ['es-419', 'de-DE', 'fr-FR', 'pt-BR', 'it-IT'];
+const PARENT = { 'en-GB': 'en-US', 'es-ES': 'es-419', 'fr-CA': 'fr-FR' };
+const tables = loadTables();
+const placeholders = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort().join(',');
 
-export function usedKeys() {
-  const keys = new Set(markupKeys(read('index.html')));
-  for (const f of CODE) codeKeys(read(f)).forEach((k) => keys.add(k));
-  // The logo, rival names, the default guest name's id and key names are not prose here.
-  const NOT_TEXT = new Set(['Gravity Hollow', '&amp;', '&gt;', '&lt;', '&quot;', '(prefers-reduced-motion: reduce)', 'var(--danger)', 'locked', 'mastery', 'Pip', 'Sorrel', 'Bram', 'Nettle', 'Cobb', 'Wren', 'Tansy', 'Hollis', 'You', 'Replay', 'Space', 'Shift', 'fatal']);
-  for (const f of UI) proseLiterals(read(f)).filter((k) => !/^[a-z]+[A-Z]\w*$/.test(k) && !NOT_TEXT.has(k) && !/^\[|WebGL unavailable|SMOKE_/.test(k)).forEach((k) => keys.add(k));
-  for (const c of challenges()) { keys.add(c.name); keys.add(c.description); }
-  for (const l of tutorials()) { keys.add(l.name); for (const s of l.steps) { keys.add(s.text); if (s.hint) keys.add(s.hint); } }
-  for (const a of Object.values(ACHIEVEMENTS)) { keys.add(a.name); keys.add(a.desc); }
-  keys.delete('Gravity Hollow');
-  return [...keys].filter((k) => /[A-Za-z]/.test(k)).sort();
+test('the key set is non-trivial', () => { assert.ok(ALL.size > 250, `only ${ALL.size} keys`); });
+
+for (const locale of FULL) {
+  test(`${locale}: every key is translated with the same placeholders`, () => {
+    const dict = tables[locale];
+    const missing = [...ALL].filter((k) => !Object.prototype.hasOwnProperty.call(dict, k));
+    assert.deepEqual(missing, [], `${missing.length} missing in ${locale}`);
+    const bad = [...ALL].filter((k) => placeholders(dict[k]) !== placeholders(k));
+    assert.deepEqual(bad, [], `placeholder mismatch in ${locale}`);
+  });
 }
 
-test('every used key is translated in every locale; placeholders intact', () => {
-  assert.deepEqual(audit(loadTables(ROOT, FILES, 'GH_STRINGS'), usedKeys()), []);
-});
-
-test('no prose template literal bypasses T()', () => {
-  const bad = CODE.flatMap((f) => proseTemplates(read(f)).map((t) => `${f}: ${t}`))
-    .filter((t) => !/: hash@step…$/.test(t)); // replay-check reason codes
-  assert.deepEqual(bad, []);
-});
-
-test('the locale follows sh-language and switches live', () => {
-  const { I18N, events, doc } = bootI18n(ROOT, { files: ['sh-language.js', ...FILES, 'src/i18n/i18n.js'], global: 'GHI18N', event: 'gh-language', languages: ['de-DE'] });
-  assert.equal(I18N.lang, 'de-DE');
-  assert.equal(doc.documentElement.lang, 'de-DE');
-  assert.equal(I18N.T('Play'), 'Spielen');
-  I18N.language.setChoice('fr-CA');
-  assert.equal(I18N.lang, 'fr-CA');
-  assert.equal(events.at(-1), 'fr-CA');
-  I18N.language.setChoice('es-ES');
-  assert.equal(I18N.T('Stage {n}', { n: 4 }), 'Etapa 4');
-});
-
-test('graphics and platform strings cover all nine locales', async () => {
-  const { platformStrings } = await import('../src/platform-i18n.js');
-  const { graphicsStrings } = await import('../src/gfx-ui.js');
-  for (const l of LOCALES) {
-    for (const k of Object.keys(platformStrings('en-US'))) assert.ok(platformStrings(l)[k], `${l} ${k}`);
-    assert.ok(graphicsStrings(l).graphics, l);
+test('regional tables only refine their parents and keep placeholders', () => {
+  for (const [l, parent] of Object.entries(PARENT)) {
+    for (const [k, v] of Object.entries(tables[l] ?? {})) {
+      assert.ok(ALL.has(k), `${l}: stray key ${k}`);
+      assert.equal(placeholders(v), placeholders(k), `${l}: ${k}`);
+    }
+    if (parent !== 'en-US') assert.ok(tables[parent], parent);
   }
+});
+
+test('no full table carries keys that no longer exist', () => {
+  for (const locale of FULL) {
+    const stray = Object.keys(tables[locale]).filter((k) => !ALL.has(k));
+    assert.deepEqual(stray, [], locale);
+  }
+});
+
+test('the account strings cover all nine locales', () => {
+  assert.equal(PLATFORM_LOCALES.length, 9);
+  for (const l of PLATFORM_LOCALES) for (const k of Object.keys(platformStrings('en-US'))) assert.ok(platformStrings(l)[k], `${l} ${k}`);
 });

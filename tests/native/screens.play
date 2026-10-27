@@ -1,0 +1,29 @@
+# The menus: title, mode cards, Practice, the setup card, a practice match's HUD, pause, Settings and Help over it.
+until 300 Gravity Hollow
+frames 150
+save title
+frames 5
+click =Play
+until 60 Choose a mode
+frames 10
+save modes
+click Practice
+until 60 Just drift and eat
+frames 10
+click Practice — Standard
+until 60 Objectives
+frames 10
+save setup
+click =Start
+until 120 Practice — Standard
+frames 200
+save countdown
+hold KeyD
+frames 120
+release KeyD
+frames 5
+save play
+key Escape 1
+until 60 Resume
+frames 10
+save pause
