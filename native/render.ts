@@ -13,19 +13,20 @@
 // the authored camera (a critically damped spring that keeps the player in
 // the inner part of the view) and its event shake.
 //
-// From three.js: light intensities are three.js's ÷ π (the engine's
-// convention for three r155+ physical lights); Lambert "twins" on Low are
+// From three.js: light intensities, the key's fitted shadow box and PCF soft
+// shadows are three.js r160's as written (minor 28); r160 scaled
+// scene.environment by each material's envMapIntensity, r185 only a
+// material's own envMap, so standard materials carry the room as envMap; Lambert "twins" on Low are
 // built as Lambert materials directly; the post chain is renderer.ao / bloom
 // / grade / antialias (the browser build's GTAOPass, UnrealBloomPass
 // threshold 2.0, GradeShader in display space, FXAA / SMAA / MSAA);
-// RoomEnvironment(renderer) for the image-based lighting; the directional
-// shadow is fitted by `distance`. Adaptive resolution, the frame-rate meter
+// RoomEnvironment(renderer) for the image-based lighting. Adaptive resolution, the frame-rate meter
 // and the pixel-ratio cap are the runtime's.
 import {
   ACESFilmicToneMapping, AdditiveBlending, AmbientLight, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CircleGeometry, Color,
   CylinderGeometry, DirectionalLight, DodecahedronGeometry, DoubleSide, DynamicDrawUsage, Fog, Group, HemisphereLight, IcosahedronGeometry,
   InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NormalBlending,
-  OctahedronGeometry, PerspectiveCamera, PlaneGeometry, PMREMGenerator, Points, PointsMaterial, RepeatWrapping, RingGeometry, RoomEnvironment,
+  OctahedronGeometry, OrthographicCamera, PCFSoftShadowMap, PerspectiveCamera, PlaneGeometry, PMREMGenerator, Points, PointsMaterial, RepeatWrapping, RingGeometry, RoomEnvironment,
   SphereGeometry, SRGBColorSpace, TetrahedronGeometry, TorusGeometry, Vector3, renderer, scene,
   type Material, type Object3D, type Texture,
 } from "starhermit:scene";
@@ -42,10 +43,10 @@ type StateLike = State;
 const PI = Math.PI;
 // Framing constants (src/render.js CAM).
 const CAM = { fov: 38, tiltDeg: 52, distPerHalf: 1.55, minDist: 46, follow: 0.22, springK: 42, springC: 12, shakeAmp: 0.35, shakeDecay: 6 };
-const SHADOW_DIST = 160;
 
 renderer.toneMapping = ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.18;
+renderer.shadowMap.type = PCFSoftShadowMap;
 const camera = new PerspectiveCamera(CAM.fov, 1, 1, 400);
 
 let look: Look | null = null;
@@ -98,10 +99,10 @@ function applyGlow(): void {
   for (const g of glowColors) g.m.color.setScalar(g.glow[hot]);
 }
 
-// -- lights (three.js intensities ÷ π) ---------------------------------------------------
-const hemi = new HemisphereLight(0xffffff, 0x000000, 2 / PI);
-const amb = new AmbientLight(0xffffff, 0.5 / PI);
-const key = new DirectionalLight(0xffffff, 2.6 / PI);
+// -- lights (three.js r160 intensities) ---------------------------------------------------
+const hemi = new HemisphereLight(0xffffff, 0x000000, 2);
+const amb = new AmbientLight(0xffffff, 0.5);
+const key = new DirectionalLight(0xffffff, 2.6);
 key.position.set(30, 55, 18);
 key.shadow.bias = -0.0004;
 key.shadow.normalBias = 0.03;
@@ -110,14 +111,25 @@ function applyLights(): void {
   const t = theme;
   const d = detailed();
   hemi.color.setHex(t.fill); hemi.groundColor.setHex(t.ground);
-  hemi.intensity = (d ? 2.0 : 2.1) / PI;
-  amb.color.setHex(t.fill); amb.intensity = (d ? 0.45 : 0.5) / PI;
-  key.color.setHex(t.key); key.intensity = (d ? 2.9 : 2.6) / PI;
+  hemi.intensity = d ? 2.0 : 2.1;
+  amb.color.setHex(t.fill); amb.intensity = d ? 0.45 : 0.5;
+  key.color.setHex(t.key); key.intensity = d ? 2.9 : 2.6;
   const shadows = !!look && look.shadows > 0;
   renderer.shadowMap.enabled = shadows;
   key.castShadow = shadows;
   if (shadows) key.shadow.mapSize = look!.shadows;
-  key.shadow.distance = SHADOW_DIST;
+  // frustum fitted tightly to the plaza + rim so every texel lands on play space (the page's box)
+  const ext = (stage ? stage.arenaHalf : 40) + 6;
+  const sc = key.shadow.camera as OrthographicCamera;
+  sc.left = -ext; sc.right = ext; sc.top = ext; sc.bottom = -ext; sc.near = 20; sc.far = 120;
+  sc.updateProjectionMatrix();
+}
+function envMaps(root: Object3D): void {
+  const env = scene.environment;
+  root.traverse((o) => {
+    const m = (o as Mesh).material;
+    for (const x of Array.isArray(m) ? m : m ? [m] : []) if (x instanceof MeshStandardMaterial && x.envMap !== env) x.envMap = env;
+  });
 }
 
 // -- procedural textures (cosmetic; never touch the rules' streams) ----------------------
@@ -342,6 +354,7 @@ function rebuild(): void {
   buildAtmosphere(stage);
   applyGlow();
   if (state) syncProps(state);
+  envMaps(scene);
 }
 
 function buildGround(st: StageLike): void {
@@ -550,6 +563,7 @@ function makeVoidView(v: VoidS): VoidView {
   const body = new Mesh(new SphereGeometry(1, seg(d ? 40 : 28), seg(d ? 28 : 20)), bodyMat);
   body.scale.y = 0.72;
   body.castShadow = true;
+  if (bodyMat instanceof MeshStandardMaterial) bodyMat.envMap = scene.environment;
   group.add(body);
   // The rim: shape and colour reinforce ownership (not bloom alone).
   const ringColor = voidColor(v.id);

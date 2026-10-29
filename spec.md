@@ -10,7 +10,7 @@ Realtime collection arena: steer a hungry black **hollow** across a miniature ni
 | Genre | Realtime collection arena (single-screen, timed, mass-based ranking) |
 | Players | 1 human vs 0–7 deterministic AI rivals (`maxVoids` 8, `rules.js` `createMatch`) |
 | Session | 45 s–5 min per match (content `durationSec`); Learn lessons end when the last step is performed |
-| Platforms | The StarHermit engine 1.24.0 (host API 1.21): natively in the StarHermit client and in browsers through the engine's web runtime (WebGPU, WebGL 2 fallback); keyboard, mouse/touch drag, gamepad |
+| Platforms | The StarHermit engine 1.26.1 (host API 1.28): natively in the StarHermit client and in browsers through the engine's web runtime (WebGPU, WebGL 2 fallback); keyboard, mouse/touch drag, gamepad |
 | Rendering | `starhermit:scene` (three.js-like) perspective scene with the runtime's post chain (ambient occlusion, bloom, display-space grade, FXAA/SMAA/MSAA); menus and HUD on `starhermit:ui` (immediate mode) over the plaza |
 | Persistence | The engine save (`starhermit:storage` `saves`: the save document, on the device and in the player's cloud slot), the game's options (`settings`), the last 8 replays (device `storage`) |
 | Host | `score-script.js` is the platform script declared in `starhermit.txt` (`server=`); `server.js` (static + `/api/v1/time` + authoritative `/ws` rooms) is a local dev host left out of the package |
@@ -19,7 +19,7 @@ File map:
 
 | Path | Role |
 |---|---|
-| `starhermit.txt` | Manifest: name, owner, server, cover, `launch=index.html`, `engine.api=1`, `engine.entry=native/main.ts`, `engine.version=1.24.0`, `engine.minor=19`, capabilities `platform,storage,clipboard`, nine `control.*` actions with `engine.gamepad.*` defaults and two Options groups |
+| `starhermit.txt` | Manifest: name, owner, server, cover, `launch=index.html`, `engine.api=1`, `engine.entry=native/main.ts`, `engine.version=1.26.1`, `engine.minor=28`, capabilities `platform,storage,clipboard`, nine `control.*` actions with `engine.gamepad.*` defaults and two Options groups |
 | `index.html`, `starhermit-files.json` | The engine's web loader and file index, written by `npm run package` (`starhermit package --web .`); never edited by hand |
 | `native/main.ts` | Entry module: app state machine, match lifecycle on the 30 Hz fixed steps, event presentation, `TutorialRun`, input (actions, drag steering, tray boost), results, replay check, leaderboard posting, lifecycle |
 | `native/screens.ts` | `starhermit:ui` screens, HUD, tray, lesson banner, void labels, countdown, pause/results dialogs, toasts, captions; layouts by window size |
@@ -136,7 +136,7 @@ Actions are declared in `starhermit.txt`; players rebind keys and gamepad button
 
 **Typography.** The runtime's `system-ui` faces; logo 48 px (32 px on narrow or short windows) in the accent colour (the old gradient text is a flat accent); tabular numerals on timer and breakdown; text size follows the runtime's text-size option.
 
-**Lighting and camera.** ACES tone mapping, exposure 1.18; hemisphere fill + ambient + one warm directional key at (30, 55, 18), three.js intensities ÷ π (the engine's convention); the key's shadow follows the view out to 160 units; fog from 90 to 260 units. On detailed looks `RoomEnvironment(renderer)` through `PMREMGenerator` is the scene environment. Camera fov 38, tilt 52°, distance `max(46, 1.55·arenaHalf)`, trails the player through a critically damped spring (k 42, c 12) with a hard margin, shake amplitude 0.35 decaying at 6/s.
+**Lighting and camera.** ACES tone mapping, exposure 1.18; hemisphere fill + ambient + one warm directional key at (30, 55, 18), three.js r160 intensities as written; the key casts PCF soft shadows in the page's fitted box (arena half + 6, near 20, far 120); fog from 90 to 260 units. On detailed looks `RoomEnvironment(renderer)` through `PMREMGenerator` is the scene environment. Camera fov 38, tilt 52°, distance `max(46, 1.55·arenaHalf)`, trails the player through a critically damped spring (k 42, c 12) with a hard margin, shake amplitude 0.35 decaying at 6/s.
 
 **Motion.** Gems bob and spin; embers flicker; edible props pulse 0.85–1.0; protected rings blink at 10 Hz; boost trail every third frame; particle bursts are event-tiered (6 crumb, 14 gem, 12 burn, 26 goal, 30 rival). The runtime's reduced-motion option disables particles, trails and shake and freezes motes, swirls and water shimmer.
 
