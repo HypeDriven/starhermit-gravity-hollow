@@ -2,13 +2,13 @@
 
 A realtime collection arena: move a growing void through a lively miniature
 plaza, consume smaller objects, and outscore rival voids before time expires.
-A StarHermit engine script game (engine 1.22.0, host API 1.21): played
+A StarHermit engine script game (engine 1.23.0, host API 1.21): played
 natively by the StarHermit client and in browsers by the engine's web runtime.
 
 ## Run
 
 ```bash
-export STARHERMIT=~/sh/runtime/1.22.0/starhermit-1.22.0-linux-x86_64/starhermit
+export STARHERMIT=~/sh/runtime/1.23.0/starhermit-1.23.0-linux-x86_64/starhermit
 $STARHERMIT .            # play natively (a window)
 npm run package          # rewrite the web loader index.html + starhermit-files.json after every change
 npm run serve            # serve the folder (static + /api/v1/time) for the browser build
