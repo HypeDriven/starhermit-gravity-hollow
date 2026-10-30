@@ -780,13 +780,15 @@ export function applyLook(next: Look): void {
     denoise: { lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: next.ao === "high" ? 6 : 4, rings: 2, samples: next.ao === "high" ? 16 : 8, radiusExponent: 2 },
   };
   // High threshold: only emissive embers and gems, the player's ring and highlights bloom.
-  // three r160 page: minor 29 bloom follows r185 UnrealBloomPass, so the page strength is squared (pages on r177+ keep theirs).
-  renderer.bloom = next.bloom ? { strength: 0.5 * 0.5, radius: 0.4, threshold: 2.0, resolution: next.budget.bloomRes } : null;
+  // three r160 page: the engine's r160 UnrealBloomPass model (minor 30) at the page's own strength.
+  // The engine's bloom high pass sees the light after toneMappingExposure (1.18) where three's OutputPass applies it after the
+  // bloom, so the page's 2.0 threshold is raised by the exposure (2.0 x 1.18) to bloom the same light.
+  renderer.bloom = next.bloom ? { strength: 0.5, radius: 0.4, threshold: 2.0 * 1.18, resolution: next.budget.bloomRes, model: "r160" } : null;
   // src/render.js GradeShader (after tone mapping): a gentle S-curve, a touch more saturation,
-  // cool shadows / warm highlights, the 0.28 vignette.
+  // cool shadows / warm highlights, the s * 0.98 + 0.012 lift, the 0.28 vignette.
   renderer.grade = next.grade ? {
-    space: "display", contrast: 0.1, saturation: 1.1,
-    shadows: [0.95, 0.99, 1.05], highlights: [1.04, 1.0, 0.95], split: [0.15, 0.75],
+    space: "display", contrastCurve: "s", contrast: 0.22, saturation: 1.1,
+    shadows: [0.95, 0.99, 1.05], highlights: [1.04, 1.0, 0.95], split: [0.15, 0.75], levels: [0.98, 0.012],
     vignette: { amount: 0.28, inner: 0.38, outer: 0.9, scale: [1.1, 1] },
   } : null;
   renderer.antialias = next.antialias;
