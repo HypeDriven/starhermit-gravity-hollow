@@ -10,7 +10,7 @@ Realtime collection arena: steer a hungry black **hollow** across a miniature ni
 | Genre | Realtime collection arena (single-screen, timed, mass-based ranking) |
 | Players | 1 human vs 0–7 deterministic AI rivals (`maxVoids` 8, `rules.js` `createMatch`) |
 | Session | 45 s–5 min per match (content `durationSec`); Learn lessons end when the last step is performed |
-| Platforms | The StarHermit engine 1.28.0 (host API 1.30): natively in the StarHermit client and in browsers through the engine's web runtime (WebGPU, WebGL 2 fallback); keyboard, mouse/touch drag, gamepad |
+| Platforms | The StarHermit engine 1.29.0 (host API 1.31): natively in the StarHermit client and in browsers through the engine's web runtime (WebGPU, WebGL 2 fallback); keyboard, mouse/touch drag, gamepad |
 | Rendering | `starhermit:scene` (three.js-like) perspective scene with the runtime's post chain (ambient occlusion, bloom, display-space grade, FXAA/SMAA/MSAA); menus and HUD on `starhermit:ui` (immediate mode) over the plaza |
 | Persistence | The engine save (`starhermit:storage` `saves`: the save document, on the device and in the player's cloud slot), the game's options (`settings`), the last 8 replays (device `storage`) |
 | Host | `score-script.js` is the platform script declared in `starhermit.txt` (`server=`); `server.js` (static + `/api/v1/time` + authoritative `/ws` rooms) is a local dev host left out of the package |
@@ -19,7 +19,7 @@ File map:
 
 | Path | Role |
 |---|---|
-| `starhermit.txt` | Manifest: name, owner, server, cover, `launch=index.html`, `engine.api=1`, `engine.entry=native/main.ts`, `engine.version=1.28.0`, `engine.minor=30`, capabilities `platform,storage,clipboard`, nine `control.*` actions with `engine.gamepad.*` defaults and two Options groups |
+| `starhermit.txt` | Manifest: name, owner, server, cover, `launch=index.html`, `engine.api=1`, `engine.entry=native/main.ts`, `engine.version=1.29.0`, `engine.minor=31`, capabilities `platform,storage,clipboard`, nine `control.*` actions with `engine.gamepad.*` defaults and two Options groups |
 | `index.html`, `starhermit-files.json` | The engine's web loader and file index, written by `npm run package` (`starhermit package --web .`); never edited by hand |
 | `native/main.ts` | Entry module: app state machine, match lifecycle on the 30 Hz fixed steps, event presentation, `TutorialRun`, input (actions, drag steering, tray boost), results, replay check, leaderboard posting, lifecycle |
 | `native/screens.ts` | `starhermit:ui` screens, HUD, tray, lesson banner, void labels, countdown, pause/results dialogs, toasts, captions; layouts by window size |

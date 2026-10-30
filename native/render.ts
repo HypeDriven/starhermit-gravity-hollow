@@ -781,9 +781,7 @@ export function applyLook(next: Look): void {
   };
   // High threshold: only emissive embers and gems, the player's ring and highlights bloom.
   // three r160 page: the engine's r160 UnrealBloomPass model (minor 30) at the page's own strength.
-  // The engine's bloom high pass sees the light after toneMappingExposure (1.18) where three's OutputPass applies it after the
-  // bloom, so the page's 2.0 threshold is raised by the exposure (2.0 x 1.18) to bloom the same light.
-  renderer.bloom = next.bloom ? { strength: 0.5, radius: 0.4, threshold: 2.0 * 1.18, resolution: next.budget.bloomRes, model: "r160" } : null;
+  renderer.bloom = next.bloom ? { strength: 0.5, radius: 0.4, threshold: 2.0, resolution: next.budget.bloomRes, model: "r160" } : null;
   // src/render.js GradeShader (after tone mapping): a gentle S-curve, a touch more saturation,
   // cool shadows / warm highlights, the s * 0.98 + 0.012 lift, the 0.28 vignette.
   renderer.grade = next.grade ? {
