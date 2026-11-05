@@ -71,7 +71,7 @@ function envMap(): Texture | null {
 const detailed = (): boolean => !!look && look.detailed;
 const physical = (): boolean => detailed() && look!.budget.material === "physical";
 const seg = (n: number): number => Math.max(6, Math.round(n * (look?.budget.segments ?? 1)));
-const bloomOn = (): boolean => !!look && look.bloom;
+const bloomOn = (): boolean => !!look && look.bloom !== null;
 
 interface MatParams {
   color: number; roughness?: number; metalness?: number; emissive?: number; emissiveIntensity?: number; envMapIntensity?: number;
@@ -117,7 +117,7 @@ function applyLights(): void {
   const shadows = !!look && look.shadows > 0;
   renderer.shadowMap.enabled = shadows;
   key.castShadow = shadows;
-  if (shadows) key.shadow.mapSize = look!.shadows;
+  if (shadows) key.shadow.mapSize = look!.shadows; // the level's size: at minor 23+ the engine keeps the game's mapSize
   // frustum fitted tightly to the plaza + rim so every texel lands on play space (the page's box)
   const ext = (stage ? stage.arenaHalf : 40) + 6;
   const sc = key.shadow.camera as OrthographicCamera;
@@ -775,13 +775,14 @@ export function applyLook(next: Look): void {
   if (look && JSON.stringify(look) === JSON.stringify(next)) return;
   const before = look;
   look = next;
-  renderer.ao = next.ao === "off" ? null : {
-    blendIntensity: 0.75, radius: 1.6, distanceExponent: 1.5, thickness: 2.0, scale: 1.0, samples: next.ao === "high" ? 16 : 8, resolution: next.budget.aoRes,
-    denoise: { lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: next.ao === "high" ? 6 : 4, rings: 2, samples: next.ao === "high" ? 16 : 8, radiusExponent: 2 },
+  const ao = next.ao, fullAo = !!ao && ao.resolution >= 1; // the engine's "high" AO: full resolution
+  renderer.ao = ao && {
+    blendIntensity: 0.75, radius: 1.6, distanceExponent: 1.5, thickness: 2.0, scale: 1.0, samples: ao.samples, resolution: ao.resolution,
+    denoise: { lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: fullAo ? 6 : 4, rings: 2, samples: ao.denoiseSamples, radiusExponent: 2 },
   };
   // High threshold: only emissive embers and gems, the player's ring and highlights bloom.
   // three r160 page: the engine's r160 UnrealBloomPass model (minor 30) at the page's own strength.
-  renderer.bloom = next.bloom ? { strength: 0.5, radius: 0.4, threshold: 2.0, resolution: next.budget.bloomRes, model: "r160" } : null;
+  renderer.bloom = next.bloom !== null ? { strength: 0.5, radius: 0.4, threshold: 2.0, resolution: next.bloom, model: "r160" } : null;
   // src/render.js GradeShader (after tone mapping): a gentle S-curve, a touch more saturation,
   // cool shadows / warm highlights, the s * 0.98 + 0.012 lift, the 0.28 vignette.
   renderer.grade = next.grade ? {

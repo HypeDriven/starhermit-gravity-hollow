@@ -14,8 +14,9 @@
 // with the old oscillator envelope. The procedural stand-ins the browser
 // build synthesized while a clip decoded are not ported (a live synthesis
 // graph makes clip loads fail on the engine's web runtime), so a clip still
-// loading is silent. Clips load once the mixer runs (natively at once, in a
-// browser after the first press), one at a time.
+// loading is silent. The clips all load at once in onStart (every loaded
+// clip reaches the mixer, natively and on the web); the ambience bed and the
+// music start once the mixer runs (in a browser after the first press).
 import { context, createClip, loadClip, play as playClip, type AudioClip, type Bus, type Sound } from "starhermit:audio";
 import { mulberry32 } from "../src/rng.js";
 
@@ -60,20 +61,14 @@ function captionFor(name: string): string | null {
 }
 
 const clips = new Map<string, AudioClip>();
-const queue: string[] = [];
-let loading = false;
-let wantClips = false;
 let onCaption: ((key: string, vars: Record<string, string | number>) => void) | null = null;
 
-function load(name: string): void { if (!queue.includes(name) && !clips.has(name)) queue.push(name); }
-function pump(): void {
-  if (loading || !queue.length) return;
-  const name = queue.shift()!;
-  loading = true;
-  loadClip(`sfx/${name}.opus`).then((c) => { clips.set(name, c); loading = false; }, (e: unknown) => { console.warn(`sfx ${name}: ${String(e)}`); loading = false; });
+/** Loads every clip at once (onStart); a cue whose clip is still loading is skipped. */
+export function loadSfx(): void {
+  for (const name of [...Object.values(SAMPLES), ...Object.values(AMBIENCE)]) {
+    loadClip(`sfx/${name}.opus`).then((c) => { clips.set(name, c); }, (e: unknown) => console.warn(`sfx ${name}: ${String(e)}`));
+  }
 }
-/** Asks for the clips; they load once the mixer runs (see update). */
-export function loadSfx(): void { wantClips = true; }
 /** cb(captionKey, vars) for each captioned event (an English key). */
 export function setOnCaption(cb: (key: string, vars: Record<string, string | number>) => void): void { onCaption = cb; }
 
@@ -89,7 +84,7 @@ export function event(nameIn: string, opts: { mass?: number } = {}): void {
   if (!clip) return;
   const bus: Bus = INTERFACE.has(name) ? "interface" : "effects";
   try { playClip(clip, { bus, gain: LEVEL.effects }); }
-  catch { clips.delete(file); load(file); } // a clip the mixer lost: load it again
+  catch { /* the mixer is full this frame: skip it */ }
 }
 
 // -- the music ---------------------------------------------------------------------------
@@ -140,18 +135,10 @@ export function stopAmbience(): void { ambience = null; }
 /** Pause and a hidden window: the music and the bed hold. */
 export function setSuspended(on: boolean): void { suspended = on; }
 
-/** Each frame: the clips once the mixer runs (one at a time), the scale's notes
- * rendered one per 0.3 s after them, the ambience bed, then the music's beats
- * by mixer time. */
+/** Each frame once the mixer runs: the ambience bed, the scale's notes
+ * rendered one per 0.3 s, then the music's beats by mixer time. */
 export function update(): void {
-  if (context.state !== "running") return;
-  if (wantClips) {
-    wantClips = false;
-    for (const name of Object.values(SAMPLES)) load(name);
-    for (const name of Object.values(AMBIENCE)) load(name);
-    return;
-  }
-  pump();
+  if (context.state !== "running") return; // starting the bed and the music still waits for the mixer
   try {
     const want = !suspended ? ambience : null;
     if (ambiencePlaying !== want) {
@@ -162,7 +149,6 @@ export function update(): void {
       if (want && bed) { ambienceSound = playClip(bed, { bus: "effects", gain: 0.6 * LEVEL.ambience, loop: true }); ambiencePlaying = want; }
     }
   } catch (e) { console.warn(`audio: ${String(e)}`); return; }
-  if (loading || queue.length) return;
   if (!musicOn || suspended) return;
   const now = context.currentTime;
   if (now >= nextRender) {

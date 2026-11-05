@@ -1,0 +1,31 @@
+# Graphics-tier bench (tools/engine-tier-bench.mjs): Challenges › Sprint Hollow (fixed seed, rivals)
+# measured in play: the hollow steered around the plaza by keys with a boost, swallowing props,
+# bursts, motes, the void swirl and the rivals.
+until 300 Gravity Hollow
+frames 150
+click =Play
+until 60 Choose a mode
+frames 10
+click Challenges
+until 60 Make every route count
+frames 10
+click Sprint Hollow
+until 60 Objectives
+frames 10
+click =Start
+until 120 Sprint Hollow
+frames 200
+measure start
+hold KeyD
+frames 200
+hold ShiftLeft
+frames 40
+release ShiftLeft
+release KeyD
+hold KeyS
+frames 160
+release KeyS
+hold KeyA
+frames 200
+release KeyA
+measure stop
