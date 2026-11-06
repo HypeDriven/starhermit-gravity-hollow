@@ -1,11 +1,10 @@
 // Every player-facing string exists in all nine locales (node --test): the five full
 // tables (es-419, de-DE, fr-FR, pt-BR, it-IT) carry every key with the same
 // placeholders; en-GB, es-ES and fr-CA list only their differences; no table keeps keys
-// that are no longer used; the account strings (src/platform-i18n.js) cover every locale.
+// that are no longer used. Account strings are the engine's `starhermit.*`.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ALL, loadTables } from './i18n-keys.mjs';
-import { platformStrings, PLATFORM_LOCALES } from '../src/platform-i18n.js';
 
 const FULL = ['es-419', 'de-DE', 'fr-FR', 'pt-BR', 'it-IT'];
 const PARENT = { 'en-GB': 'en-US', 'es-ES': 'es-419', 'fr-CA': 'fr-FR' };
@@ -41,7 +40,3 @@ test('no full table carries keys that no longer exist', () => {
   }
 });
 
-test('the account strings cover all nine locales', () => {
-  assert.equal(PLATFORM_LOCALES.length, 9);
-  for (const l of PLATFORM_LOCALES) for (const k of Object.keys(platformStrings('en-US'))) assert.ok(platformStrings(l)[k], `${l} ${k}`);
-});

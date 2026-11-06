@@ -31,8 +31,7 @@ File map:
 | `native/verify-worker.js` | `starhermit:script` module worker running `verifyReplay` off the game's thread |
 | `src/rng.js`, `src/rules.js`, `src/content.js` | Seeded streams, the pure rules engine (`createMatch`, `queryActions`, `applyCommand`, `step` at 30 Hz, scoring, `rankings`, `hashState`), content (themes, 40 Journey stages, 8 challenges, 3 practice stages, 5 lessons, daily generator, validators) — shared with the node tests unchanged |
 | `src/session.js` | Session over the rules (command submission, undo, replay envelope, `verifyReplay`), save document (`loadSave`, `mergeSaves`, `parseSaveDoc`, `envelopeJson`), achievements, `recordResult` |
-| `src/i18n/` | `strings.js` / `strings-content.js` tables (classic scripts on `globalThis.GH_STRINGS`), `t.js` helpers for the shared modules |
-| `src/platform-i18n.js` | Account-surface strings (sign-in, invite, sign-out, leaderboard lines) in nine locales |
+| `assets/strings.json`, `src/i18n/t.js` | String tables for the engine's `strings`; `t.js` helpers for the shared modules |
 | `assets/ui-style.json` | `tools/ui-style.css` (class-based rewrite of the old `styles.css`) converted by `npm run css` |
 | `assets/*.webp`, `sfx/*.opus`, `cover.jpg`, `icon.png` | Key art and results illustrations, 28 audio clips, platform cover and icon |
 | `score-script.js` | Platform score script: range-checks a ranked round's total and posts it to the `high-score` board |
@@ -190,9 +189,9 @@ This table is the source of `sfx/manifest.txt` (`file | event id | description |
 
 ## 10. Localization
 
-Every player-facing string exists in en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR and it-IT. English source text is the key: `src/i18n/strings.js` (interface) and `src/i18n/strings-content.js` (challenges, Learn lessons, achievements) hold rows of `[English, es-419, de-DE, fr-FR, pt-BR, it-IT]`; en-GB, es-ES and fr-CA list only their differences and otherwise inherit en-US, es-419 and fr-FR. Rival names, account names and typed names are not translated; the default guest name *Wanderer* is. Account strings are `src/platform-i18n.js`.
+Every player-facing string exists in en-US, en-GB, es-419, es-ES, de-DE, fr-FR, fr-CA, pt-BR and it-IT. English source text is the key: `assets/strings.json` holds the interface and content (challenges, Learn lessons, achievements) per locale; en-GB, es-ES and fr-CA list only their differences and otherwise inherit along the engine's locale chains. Rival names, account names and typed names are not translated; the default guest name *Wanderer* is. Account strings are the engine's `starhermit.*`.
 
-The language is the runtime's interface language (`preferences().language`: the player's choice in Options › Language, else the account's preferred language or the device's), mapped to the nearest shipped locale (`native/i18n.ts`); every string is drawn through `T()` each frame, so a change shows on the next frame, mid-match included. `tests/i18n.test.mjs` checks every key used in `native/*.ts`, `src/session.js` and the content exists in the five full tables with the same placeholders, that regional tables only refine their parents, that no table keeps unused keys, and that the account strings cover all nine locales.
+The language is the runtime's interface language (`preferences().language`: the player's choice in Options › Language, else the account's preferred language or the device's), mapped along the engine's locale chains; every string is drawn through `T()` each frame, so a change shows on the next frame, mid-match included. `tests/i18n.test.mjs` checks every key used in `native/*.ts`, `src/session.js` and the content exists in the five full tables with the same placeholders, that regional tables only refine their parents, that no table keeps unused keys, and that the account strings cover all nine locales.
 
 ## 11. Accessibility
 

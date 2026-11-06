@@ -10,14 +10,14 @@
 // the volumes, the mute and the voice limit): music → "music", effects and
 // ambience → "effects", the menu cues → "interface"; the old default bus
 // levels (music 70 %, effects 90 %, ambience 50 %) are folded into each
-// sound's gain. The music's notes are rendered once into clips (createClip)
+// sound's gain. The music's notes are rendered once into clips (OfflineAudioContext)
 // with the old oscillator envelope. The procedural stand-ins the browser
 // build synthesized while a clip decoded are not ported (a live synthesis
 // graph makes clip loads fail on the engine's web runtime), so a clip still
 // loading is silent. The clips all load at once in onStart (every loaded
 // clip reaches the mixer, natively and on the web); the ambience bed and the
 // music start once the mixer runs (in a browser after the first press).
-import { context, createClip, loadClip, play as playClip, type AudioClip, type Bus, type Sound } from "starhermit:audio";
+import { OfflineAudioContext, context, createClip, loadClip, play as playClip, type AudioClip, type Bus, type Sound } from "starhermit:audio";
 import { mulberry32 } from "../src/rng.js";
 
 const N = (s: string): string => s;
@@ -89,18 +89,18 @@ export function event(nameIn: string, opts: { mass?: number } = {}): void {
 
 // -- the music ---------------------------------------------------------------------------
 const RATE = 22050;
-/** src/audio.js blip(): an oscillator rising to full level in 12 ms, then exponential to 0.0001 at `dur`. */
-function noteClip(freq: number, dur: number, wave: "triangle" | "sine"): AudioClip {
-  const n = Math.round((dur + 0.02) * RATE);
-  const out = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    const t = i / RATE;
-    const ph = (freq * t) % 1;
-    const osc = wave === "sine" ? Math.sin(2 * Math.PI * ph) : 1 - 4 * Math.abs(ph - 0.5);
-    const env = t < 0.012 ? Math.pow(10000, t / 0.012) * 0.0001 : t < dur ? Math.pow(0.0001, (t - 0.012) / (dur - 0.012)) : 0;
-    out[i] = osc * env;
-  }
-  return createClip([out], RATE);
+/** src/audio.js blip(): an oscillator rising to full level in 12 ms, then exponential to 0.0001 at `dur`. One offline context a clip. */
+async function renderNote(freq: number, dur: number, wave: "triangle" | "sine"): Promise<AudioClip> {
+  const off = new OfflineAudioContext(1, Math.round((dur + 0.02) * RATE), RATE);
+  const osc = off.createOscillator();
+  osc.type = wave; osc.frequency.value = freq;
+  const g = off.createGain();
+  g.gain.setValueAtTime(0.0001, 0);
+  g.gain.exponentialRampToValueAtTime(1, 0.012);
+  g.gain.exponentialRampToValueAtTime(0.0001, dur);
+  osc.connect(g).connect(off.destination);
+  osc.start(); osc.stop(dur);
+  return createClip(await off.startRendering());
 }
 const SCALES: Record<string, number[]> = {
   verdant: [0, 3, 5, 7, 10], ember: [0, 2, 3, 7, 8], tide: [0, 2, 5, 7, 9],
@@ -108,22 +108,34 @@ const SCALES: Record<string, number[]> = {
 };
 const ROOT = 196;
 const notes = new Map<string, AudioClip>();
+const asked = new Set<string>();
 const rng = mulberry32(0xC0FFEE);
 let musicOn = false;
 let scale = SCALES.verdant!;
 let beat = 0;
 let nextBeat = 0;
-let nextRender = 0;
 let intensity = 0.3;
 let ambience: string | null = null;
 let ambienceSound: Sound | null = null;
 let ambiencePlaying: string | null = null;
 let suspended = false;
 
+/** Renders the scale's notes and the bass, each once (at most 11 contexts at once). */
+function renderScale(): void {
+  const want = (k: string, freq: number, dur: number, wave: "triangle" | "sine"): void => {
+    if (asked.has(k)) return;
+    asked.add(k);
+    renderNote(freq, dur, wave).then((c) => { notes.set(k, c); }, (e: unknown) => console.warn(`audio ${k}: ${String(e)}`));
+  };
+  for (const deg of scale) for (const oct of [1, 2]) want(`${deg}:${oct}`, ROOT * Math.pow(2, deg / 12) * oct, 0.5, "triangle");
+  want("bass", ROOT / 2, 0.8, "sine");
+}
+
 /** The match's music in the theme's scale (src/audio.js startMusic). */
 export function startMusic(theme: string): void {
   musicOn = true;
   scale = SCALES[theme] ?? SCALES.verdant!;
+  renderScale();
   intensity = 0.3;
   beat = 0;
   nextBeat = 0;
@@ -135,8 +147,7 @@ export function stopAmbience(): void { ambience = null; }
 /** Pause and a hidden window: the music and the bed hold. */
 export function setSuspended(on: boolean): void { suspended = on; }
 
-/** Each frame once the mixer runs: the ambience bed, the scale's notes
- * rendered one per 0.3 s, then the music's beats by mixer time. */
+/** Each frame once the mixer runs: the ambience bed, then the music's beats by mixer time. */
 export function update(): void {
   if (context.state !== "running") return; // starting the bed and the music still waits for the mixer
   try {
@@ -151,13 +162,6 @@ export function update(): void {
   } catch (e) { console.warn(`audio: ${String(e)}`); return; }
   if (!musicOn || suspended) return;
   const now = context.currentTime;
-  if (now >= nextRender) {
-    for (const deg of scale) for (const oct of [1, 2]) {
-      const k = `${deg}:${oct}`;
-      if (!notes.has(k)) { notes.set(k, noteClip(ROOT * Math.pow(2, deg / 12) * oct, 0.5, "triangle")); nextRender = now + 0.3; return; }
-    }
-    if (!notes.has("bass")) { notes.set("bass", noteClip(ROOT / 2, 0.8, "sine")); nextRender = now + 0.3; return; }
-  }
   if (now < nextBeat) return;
   nextBeat = Math.max(now, nextBeat) + 0.26;
   try {

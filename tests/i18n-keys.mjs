@@ -3,7 +3,6 @@
 // names and texts (challenges, lessons, achievements).
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import vm from 'node:vm';
 import { challenges, tutorials } from '../src/content.js';
 import { ACHIEVEMENTS } from '../src/session.js';
 
@@ -38,11 +37,7 @@ export function contentKeys() {
 
 // Not prose: the logo and the player label stand as they are.
 const NOT_TEXT = new Set(['Gravity Hollow']);
-export const ALL = new Set([...sourceKeys(), ...contentKeys()].filter((k) => /[A-Za-z]/.test(k) && !NOT_TEXT.has(k)));
+export const ALL = new Set([...sourceKeys(), ...contentKeys()].filter((k) => /[A-Za-z]/.test(k) && !NOT_TEXT.has(k) && !k.startsWith('starhermit.')));
 
-/** The string tables (src/i18n/strings.js, strings-content.js) as the engine loads them. */
-export function loadTables() {
-  const ctx = vm.createContext({});
-  for (const f of ['src/i18n/strings.js', 'src/i18n/strings-content.js']) vm.runInContext(readFileSync(join(ROOT, f), 'utf8'), ctx);
-  return vm.runInContext('globalThis.GH_STRINGS', ctx);
-}
+/** The string tables as the engine loads them. */
+export function loadTables() { return JSON.parse(readFileSync(join(ROOT, 'assets/strings.json'), 'utf8')); }

@@ -19,7 +19,6 @@ import { bindingLabel, bindings, requestRebind } from "starhermit:input";
 import * as draw from "starhermit:draw";
 import * as ui from "starhermit:ui";
 import { Content, Rules, Sess } from "./game.ts";
-import { platformStrings } from "../src/platform-i18n.js";
 import { N, T } from "./i18n.ts";
 import * as platform from "./platform.ts";
 import { PALETTES } from "./platform.ts";
@@ -75,12 +74,10 @@ function keyList(action: string): string {
 // ------------------------------------------------------------------ layout
 interface Layout { lw: number; lh: number; sc: number; ox: number; oy: number; compact: boolean; phone: boolean; shortLand: boolean }
 function layoutNow(): Layout {
-  const f = frame();
-  const sc = ui.preferences().scale;
-  const sa = f.safeArea;
-  const lw = Math.max(1, (f.width - sa.left - sa.right) / sc), lh = Math.max(1, (f.height - sa.top - sa.bottom) / sc);
+  const v = ui.viewport!();
+  const sc = v.scale, lw = Math.max(1, v.width), lh = Math.max(1, v.height);
   const shortLand = lw > lh && lh <= 500;
-  return { lw, lh, sc, ox: sa.left / sc, oy: sa.top / sc, compact: lw < 1024, phone: !shortLand && lw <= 700 && lh >= lw, shortLand };
+  return { lw, lh, sc, ox: v.x, oy: v.y, compact: lw < 1024, phone: !shortLand && lw <= 700 && lh >= lw, shortLand };
 }
 const lastSize = new Map<string, number>();
 const pr = (): ui.UiPreferences => ui.preferences();
@@ -212,10 +209,9 @@ function titleScreen(L: Layout): void {
       { id: "btn-help", text: T("How to play"), style: ["btn", "btn-ghost"], act: () => openPage("help") },
       { id: "btn-settings", text: T("Settings"), style: ["btn", "btn-ghost"], act: () => openPage("settings") },
     ], w, "center", 40);
-    const t = platformStrings();
     const plat: Btn[] = [];
-    if (!platform.signedIn()) plat.push({ id: "btn-signin", text: t.signIn, style: ["btn", "btn-ghost"], act: signIn });
-    if (platform.inviteLink()) plat.push({ id: "btn-invite", text: t.invite, style: ["btn", "btn-ghost"], act: copyInvite });
+    if (!platform.signedIn()) plat.push({ id: "btn-signin", text: T("starhermit.signIn"), style: ["btn", "btn-ghost"], act: signIn });
+    if (platform.inviteLink()) plat.push({ id: "btn-invite", text: T("starhermit.invite"), style: ["btn", "btn-ghost"], act: copyInvite });
     if (plat.length) flow("title-platform", plat, w, "center", 20);
     ui.column("sync-col", () => para(syncText(), w, "small", "sync-status", true), { width: w, align: "center" });
   });

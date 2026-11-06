@@ -654,6 +654,7 @@ export function playEvents(events: RulesEvent[], st: StateLike): void {
 }
 
 // -- particles ---------------------------------------------------------------------------
+// A script pool: a burst's flat ring of velocities has no emitter equivalent (spread is a cone).
 // Cosmetic randomness (Math.random) never touches the rules' seeded streams.
 function emit(x: number, y: number, z: number, color: number, count: number, speed: number, life: number): void {
   const P = particles;
@@ -671,6 +672,7 @@ function emit(x: number, y: number, z: number, color: number, count: number, spe
 function updateParticles(dt: number): void {
   const P = particles;
   if (!P) return;
+  if (!P.pool.length && P.points.geometry.drawRange.count === 0) return; // nothing alive, nothing to upload
   const posA = P.points.geometry.getAttribute("position") as BufferAttribute, colA = P.points.geometry.getAttribute("color") as BufferAttribute;
   const pos = posA.array as Float32Array, col = colA.array as Float32Array;
   let n = 0;

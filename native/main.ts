@@ -24,7 +24,6 @@ import * as ui from "starhermit:ui";
 import { onSessionEnded, requestSignIn } from "starhermit:platform";
 import { worker, type Worker } from "starhermit:script";
 import { Content, Rules, Sess, mulberry32, type Results, type RulesEvent, type Session, type Stage, type State, type Step } from "./game.ts";
-import { platformStrings } from "../src/platform-i18n.js";
 import * as audio from "./audio.ts";
 import { N, T } from "./i18n.ts";
 import * as platform from "./platform.ts";
@@ -354,9 +353,8 @@ function postToLeaderboard(total: number): void {
 export function leaderboardLine(): string | null {
   const r = app.lb;
   if (!r) return null;
-  const t = platformStrings();
-  if (r === "posting") return t.lbPosting;
-  return !r.posted ? t.lbNotPosted : r.rank ? t.lbRank.replace("{rank}", String(r.rank)) : t.lbPosted;
+  if (r === "posting") return T("starhermit.leaderboardPosting");
+  return !r.posted ? T("starhermit.leaderboardNotPosted") : r.rank ? T("starhermit.leaderboardRank", { rank: r.rank }) : T("starhermit.leaderboardPosted");
 }
 export function nextRecommended(): void {
   const stage = app.session?.stage;
@@ -411,8 +409,7 @@ export function copyInvite(): void {
   click();
   const link = platform.inviteLink();
   if (!link) return;
-  const t = platformStrings();
-  try { clipboard.writeText(link); toast(t.inviteCopied); } catch { toast(t.inviteFailed); }
+  try { clipboard.writeText(link); toast(T("starhermit.inviteCopied")); } catch { toast(T("starhermit.inviteFailed")); }
 }
 export function signIn(): void { void requestSignIn().catch(() => undefined); }
 export function setName(name: string): void {
@@ -606,7 +603,7 @@ onStart(() => {
 onPreferencesChange((p) => render.setReducedMotion(p.reducedMotion));
 platform.onSettingsChange(() => render.setPalette(settings.palette));
 platform.onProgressMerged(() => toast(T("Cloud save synced")));
-onSessionEnded(() => toast(platformStrings().signedOut));
+onSessionEnded(() => toast(T("starhermit.signedOut")));
 let hidden = false;
 onSuspend(() => {
   hidden = true;
