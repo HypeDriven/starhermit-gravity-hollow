@@ -1,3 +1,4 @@
+import { withLanguageRender as __l10nRender } from "./l10n/menu.ts";
 // Gravity Hollow on the StarHermit engine: the entry module (starhermit.txt
 // engine.entry), played natively by the StarHermit client and in browsers by
 // the engine's web runtime. The rules (src/rules.js), content
@@ -661,7 +662,7 @@ onUpdate((dt) => {
   app.toasts = app.toasts.filter((x) => x.until >= t);
   if (app.caption && app.caption.until < t) app.caption = null;
 });
-onRender(() => {
+onRender(__l10nRender(() => {
   hudRects.length = 0;
   drawScreens();
   pointerInput();
@@ -669,4 +670,8 @@ onRender(() => {
   const ev = frameEvents;
   frameEvents = [];
   render.update(app.session ? app.session.state : null, ev, frameDt, f.width, f.height);
-});
+}));
+
+// localization-runtime:menu
+import { installLanguageMenu as __installLanguageMenu } from "./l10n/menu.ts";
+__installLanguageMenu(false);

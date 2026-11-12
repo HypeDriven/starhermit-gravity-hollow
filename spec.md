@@ -272,3 +272,11 @@ QA bar: (1) a new player sees instructions within the first lesson banner and ev
 ## Runtime options
 
 The StarHermit runtime's Options (F1, or Settings › *Open Options*) own sound (volumes, mute, voice limit), graphics (level, render scale, frame-rate limit and readout), language, controls (keys and pads), accessibility (reduced motion, high contrast, text and interface size, vibration), account and reporting; the browser build's shared panels (game-options.js, sh-language.js, ui-scale.js, browser-guard.js) are gone.
+
+<!-- regional-localization:start -->
+
+### Regional interface languages
+
+The string tables include complete regional variants for `fr-BE`, `de-BE`, `en-SG`, `en-HK`, `en-BQ`, `es-CO`, `de-IT`, `fr-IT`, `es-CL`, `es-AR`, `es-EC`, `de-BR`. These reuse the corresponding existing translations in their language family. The runtime can resolve the exact regional tag. Language selection is available from the game’s Options panel or F2 and is saved per player in `ui.language`. Changes apply during play. Additional national, regional and indigenous language packs are only shipped once every English message has a translation with intact placeholders and markup. Complete additional language tables: `nl-BE`, `zh-SG`, `ms-SG`, `ta-SG`, `zh-HK`, `nl-NL`, `fi-FI`, `sv-FI`, `et-EE`, `id-ID`, `vi-VN`, `ja-JP`, `yue-HK`, `da-DE`, `lb-BE`, `eu-FR`, `ca-FR`, `oc-FR`, `sl-IT`, `ca-IT`, `oc-IT`, `ru-FI`, `ca-ES`, `eu-ES`, `gl-ES`, `ru-EE`, `su-ID`, `co-FR`, `fur-IT`, `bew-ID`, `km-VN`.
+
+<!-- regional-localization:end -->
