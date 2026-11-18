@@ -150,7 +150,7 @@ function dl(id: string, rows: [string, string, boolean?][], w: number): void {
 const keep = (r: ui.Rect): void => { hudRects.push(r); };
 
 // ------------------------------------------------------------------ the frame
-export function drawScreens(): void {
+function drawScreensImmediate(): void {
   const L = layoutNow();
   const f = frame();
   if (app.screen !== "game") draw.rect(0, 0, f.width, f.height, "#050806bd");
@@ -164,7 +164,7 @@ export function drawScreens(): void {
     case "help": page("help", L, 780, (w) => helpScreen(w)); break;
     case "game": gameScreen(L); break;
   }
-  toasts(L);
+  captions(L);
   if (app.focusNext) {
     const age = f.frame - app.openedFrame;
     if (age >= 1) ui.setFocus(app.focusNext);
@@ -602,7 +602,6 @@ function gameScreen(L: Layout): void {
       }, { spacing: 6, align: "center" }));
       keep(a); keep(b); keep(c);
       hudBottom = (c.y + c.height) / L.sc;
-      toastTop = (b.y + b.height) / L.sc - L.oy + 8;
     }
     tray(L);
     lessonBanner(L, hudBottom);
@@ -734,20 +733,17 @@ function resultsDialog(L: Layout): void {
   }, () => { app.openedFrame = frame().frame; /* the results stay until a choice is made */ });
 }
 
-// ------------------------------------------------------------------ toasts and captions
-let toastTop = 64;
-function toasts(L: Layout): void {
-  // Over a screen or dialog the stack sits at the top edge; during play at the top end, under the HUD.
-  const menu = app.screen !== "game" || !!app.overlay;
-  const w = Math.min(menu ? 520 : 260, L.lw - 24);
-  let y = menu || L.phone || L.shortLand ? 8 : toastTop;
-  for (const [i, t] of app.toasts.entries()) {
-    const at = menu || L.phone ? { anchor: "top" as const, y } : L.shortLand ? { anchor: "top" as const, y } : { anchor: "top-end" as const, x: 12, y };
-    const r = ui.place(`toast-${i}`, at, () => ui.column(`toast-col-${i}`, () => para(t.text, w - 30, "toast-text", `toast-${i}-text`), { style: "toast" }));
-    y += r.height / L.sc + 8;
-  }
+// ------------------------------------------------------------------ captions
+function captions(L: Layout): void {
   if (app.caption && app.screen === "game") {
     const text = app.caption.text;
     ui.place("captions", { anchor: "bottom", y: L.shortLand ? 12 : 90 }, () => ui.column("caption-col", () => para(text, Math.min(L.lw - 60, 480), "caption-text", "caption-text", true), { style: "caption" }));
   }
+}
+
+export function drawScreens(): void {
+  if (app.screen !== "help") { drawScreensImmediate(); return; }
+  const actions = ["up","down","left","right","boost","pause","undo","hint","camera"];
+  const version = JSON.stringify([(app as any).settings ?? (app as any).options ?? {}, (platform as any).options ?? {}, actions.map((action) => bindings(action))]);
+  ui.retain!("help-screen", version, drawScreensImmediate);
 }

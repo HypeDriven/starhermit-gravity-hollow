@@ -70,10 +70,10 @@ const now = (): number => frame().time;
 export function announce(text: string, assertive = false): void {
   if (text) ui.announce(text.slice(0, 500), { politeness: assertive ? "assertive" : "polite" });
 }
-/** src/ui.js toast(): 3.2 s by default, stacked (at most three). */
+/** Native toast: 3.2 s by default, stacked by the engine. */
 export function toast(text: string, seconds = 3.2): void {
-  app.toasts.push({ text, until: now() + seconds });
-  if (app.toasts.length > 3) app.toasts.shift();
+  const menu = app.screen !== "game" || !!app.overlay;
+  ui.toast!(text, { duration: seconds, position: "top", offset: menu ? 8 : 64, style: "toast", dismissible: false });
   announce(text);
 }
 export function click(name = "ui_confirm"): void { audio.event(name); }
