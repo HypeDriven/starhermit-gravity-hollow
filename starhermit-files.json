@@ -23,7 +23,7 @@
     "cover.jpg": {"sha256": "dd79198b724adeb7e1868b5cb52e08ed95ab5746f3ddaac3fdb7f95919219f99", "size": 145384},
     "icon.png": {"sha256": "9fe31e2cde15529f3917fd5341aa4f692f1f86e15ab5d1452c8f18a9ec643873", "size": 11514},
     "icon.png.ktx2": {"sha256": "29278468ccfc6db2b2bc379638b215525b0070150b1390940b220186c49a3f02", "size": 87776},
-    "index.html": {"sha256": "fbe22ee3ff78076df03b1dcb502b8d4d535b2224df89c223e943d52c53d682dc", "size": 1784},
+    "index.html": {"sha256": "0bf271289272407dbd02366e733d749733636800353ef8dcda5813df82f1ad6e", "size": 1784},
     "native/audio.ts": {"sha256": "354c5e17995ae8e67462f46c3bb96046ff989f5cadbcd2be99042a3fb8229f4a", "size": 8714},
     "native/game.ts": {"sha256": "d54ae2bc791269ac6e2628431d0962d43dba191277e01e4d13e81720d36b6e35", "size": 5928},
     "native/i18n.ts": {"sha256": "b77b7ae32703e19cae61ac07f2d5c0ab8b7cc40be7009593dba673d2130e0e65", "size": 1348},
@@ -32,11 +32,11 @@
     "native/main.ts": {"sha256": "40a4297d6d15d749d4f5f8c1fd131f040c96c37c7eae0b6f1b2965bef84e2253", "size": 29700},
     "native/platform.ts": {"sha256": "91b4ae891ef01461560ae45f32dfcb7e31f93340116b4563fbbcc96059b95e37", "size": 12790},
     "native/quality.ts": {"sha256": "64ebe500efea8d1b21d49df15244182cdaa4d7ba8aa4c0e21d8760b5d3b2eabe", "size": 4362},
-    "native/render.ts": {"sha256": "af3b43faf4e74411beb00b1a7ab93671d306f7159a49e5a2babbc189ccfa966b", "size": 41645},
+    "native/render.ts": {"sha256": "81593411bbf44c0e07e10899f6e5f60113564880d8b550ba09aed67ae2099bfb", "size": 41776},
     "native/screens.ts": {"sha256": "0202a7886fd286e080399e0d603064807d7a0e8518eb99a8097edbdad4dbb6e2", "size": 43679},
     "native/style.ts": {"sha256": "be89cbad772e2212a1fb5aca672cdf680049da595fd936764e9fabdf502f654a", "size": 3644},
     "native/verify-worker.js": {"sha256": "7e9060558bb8c89550bcdd6b5879a6cbbad56ecf1e471ff04a4d65de4bdd7a41", "size": 660},
-    "publication.json": {"sha256": "cab52151b5e9f0f2c07da6ba970eb4d44a5c7bf89b54802c5cdb63bc84234c8c", "size": 3226},
+    "publication.json": {"sha256": "30991caaaa881f782baaa1688a27d410e2387efecfea92f08e5bb390b224c3e1", "size": 4150},
     "score-script.js": {"sha256": "4133359e8234cac920651c89f79485aa401cdca970720662e50150de4431f600", "size": 2487},
     "sfx/achievement-unlock.opus": {"sha256": "943e739f4ea341d7949244f92c6066b082bcdbea2fe72cb6b1919d7e11e83971", "size": 23955},
     "sfx/amb-forge.opus": {"sha256": "da778a1e59bedab3d0f0ecedf8374af61f0c4240622c5baff17b50ba396ebab7", "size": 92278},
@@ -72,7 +72,7 @@
     "src/rng.js": {"sha256": "032676316d82cdd847935364b5d3a97dd522be909d7cf7c46ead43a679b0c863", "size": 1312},
     "src/rules.js": {"sha256": "5edc2c0ee1110f8c37dd57d7791dc138300b6678dc1bf032e6f2205febf2fd9e", "size": 22250},
     "src/session.js": {"sha256": "9d3d6858e27848dc661678377ebb3331fabcc731ff15a739fe205a1286fabfb0", "size": 13463},
-    "starhermit.txt": {"sha256": "6f4ec114b6e5b9600921ac87fd1a50f473dfc562f7a3b9ba133ba30e39b5adfb", "size": 2102}
+    "starhermit.txt": {"sha256": "67c679c151330d77135a153feb03abafb37583ba6ee72c66c4e9d6fbd623a8d5", "size": 2125}
   },
   "excluded": ["README.md", "coverart.png", "knownissues.md", "node_modules/", "package-lock.json", "package.json", "server.js", "sfx/manifest.md", "sfx/manifest.txt", "spec.md", "tests/", "tools/", "tsconfig.json"],
   "format": 1
