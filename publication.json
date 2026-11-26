@@ -12,7 +12,7 @@
     "metadataSource": "starhermit.txt",
     "createdAt": "2026-09-01T07:01:00.787816+00:00",
     "coverArtSource": "manifest",
-    "coverArtUpdatedAt": "2026-11-23T17:01:47.488025+00:00",
+    "coverArtUpdatedAt": "2026-11-26T14:04:28.922512+00:00",
     "submittedByUserId": "2712e04e-461b-4d23-81ae-e40b429128a8",
     "submittedByUsername": "starhermit",
     "hosting": {
@@ -22,9 +22,9 @@
       "pinnedCommitSha": null,
       "deployedCommitSha": null,
       "deployError": null,
-      "deployedAt": "2026-11-23T17:01:47.477458+00:00",
+      "deployedAt": "2026-11-26T14:04:28.911437+00:00",
       "externalLaunchUrl": null,
-      "engineVersion": "1.47.0",
+      "engineVersion": "1.50.0",
       "deployWarning": null
     },
     "description": "Steer a hungry hollow around a miniature plaza, swallowing smaller objects and rivals to collect the most mass.",
@@ -36,19 +36,19 @@
     "links": [],
     "isDisabled": false
   },
-  "publishedAt": "2026-11-23T17:01:47.596Z",
-  "sourceCommit": "62e00c6065141d424d959494897cffb66ef36e7e",
-  "bytesReceived": 4091168,
-  "archiveSha256": "e8328223ec6f34d1a8006ed331438516d0171b9fa8fe137c6a39a150e54a59eb",
+  "publishedAt": "2026-11-26T14:04:27.886Z",
+  "sourceCommit": "989764b52540fd310c828b8de60986c51abb0a53",
+  "bytesReceived": 4091196,
+  "archiveSha256": "57fa7d149ec64c2eb482c5361256f73edf37ba225603e2dbe462d97201f73e5f",
   "indexSha256": "73806f1dafd2c4ed4030b5ff214c5d0850dc631dad10542cec13778ff0e0f725",
   "result": {
     "clientPublished": true,
     "serverImageLoaded": false,
     "imageDigest": null,
-    "bytesReceived": 4091168,
+    "bytesReceived": 4091196,
     "mode": "replace",
     "filesRemoved": 0,
-    "engineVersion": "1.47.0",
+    "engineVersion": "1.50.0",
     "deployWarning": null
   },
   "liveVerification": {
