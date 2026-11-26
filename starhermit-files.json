@@ -39,7 +39,7 @@
     "native/screens.ts": {"sha256": "0202a7886fd286e080399e0d603064807d7a0e8518eb99a8097edbdad4dbb6e2", "size": 43679},
     "native/style.ts": {"sha256": "be89cbad772e2212a1fb5aca672cdf680049da595fd936764e9fabdf502f654a", "size": 3644},
     "native/verify-worker.js": {"sha256": "7e9060558bb8c89550bcdd6b5879a6cbbad56ecf1e471ff04a4d65de4bdd7a41", "size": 660},
-    "publication.json": {"sha256": "63935c0ede5a5157f7315c9360b327de0e14ba141b740b5239e40dd2ba73f61c", "size": 4150},
+    "publication.json": {"sha256": "29baaff9fc581275809a3bdf38cedf3162064f8f6327e836fdd74fab9d33ad89", "size": 4150},
     "score-script.js": {"sha256": "4133359e8234cac920651c89f79485aa401cdca970720662e50150de4431f600", "size": 2487},
     "sfx/achievement-unlock.opus": {"sha256": "943e739f4ea341d7949244f92c6066b082bcdbea2fe72cb6b1919d7e11e83971", "size": 23955},
     "sfx/amb-forge.opus": {"sha256": "da778a1e59bedab3d0f0ecedf8374af61f0c4240622c5baff17b50ba396ebab7", "size": 92278},

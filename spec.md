@@ -10,7 +10,7 @@ Realtime collection arena: steer a hungry black **hollow** across a miniature ni
 | Genre | Realtime collection arena (single-screen, timed, mass-based ranking) |
 | Players | 1 human vs 0–7 deterministic AI rivals (`maxVoids` 8, `rules.js` `createMatch`) |
 | Session | 45 s–5 min per match (content `durationSec`); Learn lessons end when the last step is performed |
-| Platforms | The StarHermit engine 1.50.0 (host API 1.50): natively in the StarHermit client and in browsers through the engine's WebGPU-only web runtime; keyboard, mouse/touch drag, gamepad |
+| Platforms | The StarHermit engine 1.50.0 (host API 1.50): natively in the StarHermit client and in browsers through the engine's web runtime (WebGPU, or WebGL 2 where WebGPU is missing); keyboard, mouse/touch drag, gamepad |
 | Rendering | `starhermit:scene` (three.js-like) perspective scene with the runtime's post chain (ambient occlusion, bloom, display-space grade, FXAA/SMAA/MSAA); menus and HUD on `starhermit:ui` (immediate mode) over the plaza |
 | Persistence | The engine save (`starhermit:storage` `saves`: the save document, on the device and in the player's cloud slot), the game's options (`settings`), the last 8 replays (device `storage`) |
 | Host | `score-script.js` is the platform script declared in `starhermit.txt` (`server=`); `server.js` (static + `/api/v1/time` + authoritative `/ws` rooms) is a local dev host left out of the package |
